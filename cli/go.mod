@@ -1,4 +1,4 @@
-module glowby
+module github.com/glowbom/glowbom-oss/cli
 
 go 1.24
 

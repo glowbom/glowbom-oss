@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-type glowbyHealthResponse struct {
+type glowbomHealthResponse struct {
 	Name string `json:"name"`
 	OK   bool   `json:"ok"`
 }
@@ -32,7 +32,7 @@ func backendListenAddr(port string) string {
 	return net.JoinHostPort(host, port)
 }
 
-func glowbyServerToken() string {
+func glowbomServerToken() string {
 	for _, key := range []string{"GLOWBOM_SERVER_TOKEN", "GLOWBY_SERVER_TOKEN"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			return value
@@ -41,7 +41,7 @@ func glowbyServerToken() string {
 	return ""
 }
 
-func glowbyAllowedOrigins() map[string]struct{} {
+func glowbomAllowedOrigins() map[string]struct{} {
 	raw := ""
 	for _, key := range []string{"GLOWBOM_ALLOWED_ORIGINS", "GLOWBY_ALLOWED_ORIGINS"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -67,7 +67,7 @@ func glowbyAllowedOrigins() map[string]struct{} {
 	return allowed
 }
 
-func glowbyHealthHandler(w http.ResponseWriter, r *http.Request) {
+func glowbomHealthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -75,15 +75,15 @@ func glowbyHealthHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(glowbyHealthResponse{
-		Name: "Glowby",
+	_ = json.NewEncoder(w).Encode(glowbomHealthResponse{
+		Name: "Glowbom OSS",
 		OK:   true,
 	})
 }
 
-func withGlowbySecurity(next http.Handler) http.Handler {
-	token := glowbyServerToken()
-	allowedOrigins := glowbyAllowedOrigins()
+func withGlowbomSecurity(next http.Handler) http.Handler {
+	token := glowbomServerToken()
+	allowedOrigins := glowbomAllowedOrigins()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isPublicBackendRoute(r) {
@@ -96,7 +96,7 @@ func withGlowbySecurity(next http.Handler) http.Handler {
 			return
 		}
 
-		if token != "" && !hasValidGlowbyServerToken(r, token) {
+		if token != "" && !hasValidGlowbomServerToken(r, token) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -172,8 +172,11 @@ func isLoopbackHost(host string) bool {
 	}
 }
 
-func hasValidGlowbyServerToken(r *http.Request, expected string) bool {
-	provided := strings.TrimSpace(r.Header.Get("X-Glowby-Token"))
+func hasValidGlowbomServerToken(r *http.Request, expected string) bool {
+	provided := strings.TrimSpace(r.Header.Get("X-Glowbom-Token"))
+	if provided == "" {
+		provided = strings.TrimSpace(r.Header.Get("X-Glowby-Token"))
+	}
 	if provided == "" {
 		provided = bearerToken(r.Header.Get("Authorization"))
 	}

@@ -258,7 +258,7 @@ func chatWithAIHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, resp)
 			return
 		} else if req.Model == "claude-opus" {
-			// Draw-to-code using Claude Opus 4.6 API
+			// Draw-to-code using Claude Opus 4.7 API
 			respData, err := callClaudeDrawToCodeApiFullWithModel(
 				*req.Image, userPrompt,
 				req.Template, req.ImageSource,
@@ -308,7 +308,7 @@ func chatWithAIHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, resp)
 			return
 		} else if req.Model == "grok" {
-			// Draw-to-code using Grok 4.1
+			// Draw-to-code using Grok 4.3.
 			respData, err := callGrok4DrawToCodeApiFull(
 				*req.Image, userPrompt,
 				req.Template, req.ImageSource,
@@ -559,7 +559,7 @@ func chatWithAIHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else if req.Model == "claude-opus" {
 			if isStream {
-				// Use streaming with Extended Thinking support (Opus 4.6)
+				// Use streaming with Extended Thinking support (Opus 4.7)
 				var err error
 				if req.EnableMagicEdit {
 					// Include magic_edit tool for AI-triggered edits
@@ -1025,9 +1025,9 @@ func generateImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Println("[DEBUG] Received prompt:", reqBody.Prompt)
 
-	// 2) Check if using gpt-image-1 or gpt-image-1.5 (OpenAI)
-	if (reqBody.ImageSource == "Glowby Images (gpt-image-1)" || reqBody.ImageSource == "Glowby Images (gpt-image-1.5)") && reqBody.OpenAIKey != "" {
-		fmt.Println("[DEBUG] Using OpenAI (gpt-image-1.5) for image generation")
+	// 2) Check if using the OpenAI GPT Image family.
+	if isOpenAIImageSource(reqBody.ImageSource) && reqBody.OpenAIKey != "" {
+		fmt.Printf("[DEBUG] Using OpenAI (%s) for image generation\n", openAIImageModelID)
 
 		var dataURI string
 		var err error
@@ -1053,7 +1053,7 @@ func generateImageHandler(w http.ResponseWriter, r *http.Request) {
 		// Return response in same format as ComfyUI
 		respJSON := map[string]interface{}{
 			"prompt":     reqBody.Prompt,
-			"filename":   "gpt-image-1.png",
+			"filename":   openAIImageModelID + ".png",
 			"subfolder":  "",
 			"saved_path": "",
 			"image":      dataURI,
@@ -1063,7 +1063,7 @@ func generateImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2b) Check if using Nano Banana family (Gemini)
-	if (reqBody.ImageSource == "Glowby Images (Nano Banana 2)" || reqBody.ImageSource == "Glowby Images (Nano Banana Pro)" || reqBody.ImageSource == "Glowby Images (Nano Banana)") && reqBody.GeminiKey != "" {
+	if strings.Contains(strings.ToLower(strings.TrimSpace(reqBody.ImageSource)), "nano banana") && reqBody.GeminiKey != "" {
 		fmt.Println("[DEBUG] Using Gemini (Nano Banana 2) for image generation")
 
 		var dataURI string
@@ -1099,9 +1099,9 @@ func generateImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2c) Check if using Grok Imagine Image Pro (xAI)
+	// 2c) Check if using Grok Imagine Image Quality (xAI)
 	if isGrokImagineImageSource(reqBody.ImageSource) && reqBody.XaiKey != "" {
-		fmt.Println("[DEBUG] Using xAI Grok Imagine Image Pro for image generation")
+		fmt.Println("[DEBUG] Using xAI Grok Imagine Image Quality for image generation")
 
 		var dataURI string
 		var err error
@@ -1127,7 +1127,7 @@ func generateImageHandler(w http.ResponseWriter, r *http.Request) {
 		// Return response in same format as ComfyUI
 		respJSON := map[string]interface{}{
 			"prompt":     reqBody.Prompt,
-			"filename":   "grok-imagine-image-pro.jpg",
+			"filename":   xAIImageOutputFilename,
 			"subfolder":  "",
 			"saved_path": "",
 			"image":      dataURI,

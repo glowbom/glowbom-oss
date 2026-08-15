@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "glowby-oss-web",
+      "name": "glowbom-oss-web",
       "dependencies": {
         "markdown-it": "^14.1.0",
         "react": "^19.0.0",

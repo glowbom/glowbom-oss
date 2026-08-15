@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	glowbyRepositoryURL   = "https://github.com/glowbom/glowby"
+	glowbomRepositoryURL  = "https://github.com/glowbom/glowbom-oss"
 	glowbomWebsiteURL     = "https://glowbom.com"
 	codexAppServerURL     = "https://developers.openai.com/codex/app-server/"
 	glowbomDesktopPDFPath = "docs/2026/Glowbom_Desktop_A_Sketch_to_Software_System.pdf"
@@ -61,13 +61,15 @@ func resolveGlowbomDesktopPDFPath() (string, bool) {
 	return "", false
 }
 
-func resolveGlowbyPublicAssetPath(fileName string) (string, bool) {
+func resolveGlowbomPublicAssetPath(fileName string) (string, bool) {
 	safeName := strings.TrimSpace(fileName)
 	if safeName == "" || strings.Contains(safeName, "/") || strings.Contains(safeName, "\\") {
 		return "", false
 	}
 
 	candidates := []string{
+		filepath.FromSlash(filepath.Join("..", "website", "glowbom-oss", "public", safeName)),
+		filepath.FromSlash(filepath.Join("website", "glowbom-oss", "public", safeName)),
 		filepath.FromSlash(filepath.Join("..", "website", "glowby-oss", "public", safeName)),
 		filepath.FromSlash(filepath.Join("website", "glowby-oss", "public", safeName)),
 	}
@@ -87,13 +89,13 @@ func resolveGlowbyPublicAssetPath(fileName string) (string, bool) {
 	return "", false
 }
 
-func serveGlowbyPublicAsset(w http.ResponseWriter, r *http.Request, fileName string) {
+func serveGlowbomPublicAsset(w http.ResponseWriter, r *http.Request, fileName string) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	assetPath, ok := resolveGlowbyPublicAssetPath(fileName)
+	assetPath, ok := resolveGlowbomPublicAssetPath(fileName)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -103,22 +105,22 @@ func serveGlowbyPublicAsset(w http.ResponseWriter, r *http.Request, fileName str
 	http.ServeFile(w, r, assetPath)
 }
 
-func glowbyFaviconHandler(w http.ResponseWriter, r *http.Request) {
-	serveGlowbyPublicAsset(w, r, "favicon.png")
+func glowbomFaviconHandler(w http.ResponseWriter, r *http.Request) {
+	serveGlowbomPublicAsset(w, r, "favicon.png")
 }
 
-func glowbyLogoSVGHandler(w http.ResponseWriter, r *http.Request) {
-	serveGlowbyPublicAsset(w, r, "logo-svg.svg")
+func glowbomLogoSVGHandler(w http.ResponseWriter, r *http.Request) {
+	serveGlowbomPublicAsset(w, r, "logo-svg.svg")
 }
 
-func glowbyBackendInfoPayload() backendInfo {
+func glowbomBackendInfoPayload() backendInfo {
 	info := backendInfo{
-		Name:       "Glowby",
-		Summary:    "Choose a project folder and let Glowby finish the engineering work locally.",
-		HowItWorks: "Glowby manages agent drivers for you, keeps context in one place, and streams every step while code is being improved.",
+		Name:       "Glowbom OSS",
+		Summary:    "Choose a project folder and let Glowbom OSS finish the engineering work locally.",
+		HowItWorks: "Glowbom OSS manages agent drivers for you, keeps context in one place, and streams every step while code is being improved.",
 		RuntimeURL: "http://127.0.0.1:" + getAgentPort(),
 		Links: []backendInfoLink{
-			{Label: "Glowby OSS repository", URL: glowbyRepositoryURL},
+			{Label: "Glowbom OSS repository", URL: glowbomRepositoryURL},
 			{Label: "Glowbom website", URL: glowbomWebsiteURL},
 			{Label: "Codex App Server", URL: codexAppServerURL},
 			{Label: "Backend metadata (JSON)", URL: "/opencode/about"},
@@ -161,13 +163,13 @@ func normalizedLinkHref(raw string) string {
 	return href
 }
 
-func glowbyBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
+func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	info := glowbyBackendInfoPayload()
+	info := glowbomBackendInfoPayload()
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(info)
@@ -390,7 +392,7 @@ func glowbyBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
           <img alt="Glowbom" src="/logo-svg.svg" />
         </a>
         <nav class="topbar-links">
-          <a href="https://glowbom.com/glowby/" target="_blank" rel="noreferrer">Glowby</a>
+          <a href="https://glowbom.com/oss" target="_blank" rel="noreferrer">Glowbom OSS</a>
           <a href="https://glowbom.com/desktop/" target="_blank" rel="noreferrer">Desktop</a>
           <a href="https://glowbom.com/terms.html" target="_blank" rel="noreferrer">Terms</a>
           <a href="https://glowbom.com/pricing/" target="_blank" rel="noreferrer">Pricing</a>
@@ -411,7 +413,7 @@ func glowbyBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
       <section class="card">
         <h2>How It Works</h2>
         <ol>
-          <li>Open the Glowby web UI at <code>http://127.0.0.1:4572</code>.</li>
+          <li>Open the Glowbom OSS web UI at <code>http://127.0.0.1:4572</code>.</li>
           <li>Choose a local Glowbom project folder.</li>
           <li>Pick an agent driver and run <code>/opencode/refine</code>.</li>
           <li>Watch live logs, answer prompts, and open outputs in your IDE.</li>
@@ -449,7 +451,7 @@ func openCodeAboutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(glowbyBackendInfoPayload())
+	_ = json.NewEncoder(w).Encode(glowbomBackendInfoPayload())
 }
 
 func openCodeProjectDescriptionHandler(w http.ResponseWriter, r *http.Request) {

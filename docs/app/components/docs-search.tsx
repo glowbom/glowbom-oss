@@ -416,7 +416,7 @@ export function DocsSearchDialog() {
           setActiveIndex={setActiveIndex}
         />
         <div className="border-t bg-fd-secondary/50 p-3 text-xs text-fd-muted-foreground">
-          Search across Glowbom and Glowby OSS docs.
+          Search across Glowbom docs, including Glowbom OSS.
         </div>
       </div>
     </>

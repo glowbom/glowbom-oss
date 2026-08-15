@@ -351,6 +351,7 @@ type openCodeOpenAIOAuthSession struct {
 }
 
 var openAIChatGPTModelAllowlist = map[string]string{
+	"gpt-5.5":            "GPT-5.5",
 	"gpt-5.4":            "GPT-5.4",
 	"gpt-5.3-codex":      "GPT-5.3 Codex",
 	"gpt-5.2":            "GPT-5.2",
@@ -360,6 +361,7 @@ var openAIChatGPTModelAllowlist = map[string]string{
 }
 
 var openAICodexForwardCompatModelIDs = []string{
+	"gpt-5.5",
 	"gpt-5.4",
 	"gpt-5.3-codex",
 }
@@ -369,7 +371,7 @@ func isOpenAICodexForwardCompatModelID(modelID string) bool {
 	if normalized == "" {
 		return false
 	}
-	return normalized == "gpt-5.4" || normalized == "gpt-5.3-codex"
+	return normalized == "gpt-5.5" || normalized == "gpt-5.4" || normalized == "gpt-5.3-codex"
 }
 
 func appendOpenAICodexForwardCompatModels(models []OpenAIModelOption, providerModelIDs []string, authMode string) ([]OpenAIModelOption, []string) {
@@ -842,7 +844,7 @@ func writeOpenAIOAuthCallbackHTML(w http.ResponseWriter, success bool, message s
     <div class="card">
       <h2 class="%s">%s</h2>
       <p>%s</p>
-      <p>You can close this tab and return to Glowby OSS.</p>
+      <p>You can close this tab and return to Glowbom OSS.</p>
     </div>
     <script>setTimeout(function(){ try { window.close(); } catch (_) {} }, 900);</script>
   </body>
@@ -997,9 +999,9 @@ func startOpenCodeServer(openAIKey, anthropicKey, geminiKey, fireworksKey, openR
 			if anthropicKey != "" {
 				modelToUse = "anthropic/claude-sonnet-4-6"
 			} else if openAIKey != "" {
-				modelToUse = "openai/gpt-5.4"
+				modelToUse = "openai/gpt-5.5"
 			} else if xaiKey != "" {
-				modelToUse = "xai/grok-4-1-fast-non-reasoning"
+				modelToUse = "xai/" + grokTextModelID
 			} else if openCodeZenKey != "" {
 				modelToUse = "opencode/kimi-k2.5-free"
 			} else {
@@ -2592,16 +2594,16 @@ func parseModel(model string) (modelID, providerID string) {
 	case "claude", "claude-sonnet":
 		return "claude-sonnet-4-6", "anthropic"
 	case "claude-opus":
-		return "claude-opus-4-6", "anthropic"
-	case "gpt-5", "gpt-5.1", "gpt-5.4":
-		return "gpt-5.4", "openai"
+		return "claude-opus-4-7", "anthropic"
+	case "gpt-5", "gpt-5.1", "gpt-5.4", "gpt-5.5":
+		return "gpt-5.5", "openai"
 	case "gpt-5.2":
 		return "gpt-5.2", "openai"
 	case "gpt-4o":
 		return "gpt-4o", "openai"
 	case "gemini":
 		return "gemini-3.1-pro-preview", "google"
-	case "grok", "xai", "grok-4.1", "grok-4-1", "grok-4.1-fast", "grok-4-1-fast", "grok-4.1-fast-reasoning", "grok-4-1-fast-reasoning":
+	case "grok", "xai", "grok-4.1", "grok-4-1", "grok-4.1-fast", "grok-4-1-fast", "grok-4.1-fast-reasoning", "grok-4-1-fast-reasoning", "grok-4.1-fast-non-reasoning", "grok-4-1-fast-non-reasoning", "grok-4.3", "grok-4-3", "grok-4.3-latest", "grok-4-3-latest", "grok-latest":
 		return normalizeXAIModelID(model), "xai"
 	case "fireworks", "glm-5":
 		return "accounts/fireworks/models/glm-5", "fireworks-ai"
@@ -3595,7 +3597,7 @@ func setOpenAIOAuthSessionSucceeded(state string, status openCodeAuthStatusRespo
 
 func finalizeOpenAIOAuthCallback(state, code, oauthError, oauthErrorDescription string) (bool, string) {
 	if state == "" {
-		return false, "Missing OAuth state. Please restart login from Glowby OSS."
+		return false, "Missing OAuth state. Please restart login from Glowbom OSS."
 	}
 
 	ensureOpenAIOAuthSessionStore()
@@ -3604,7 +3606,7 @@ func finalizeOpenAIOAuthCallback(state, code, oauthError, oauthErrorDescription 
 	session := openCodeOpenAIOAuthSessions.sessions[state]
 	if session == nil {
 		openCodeOpenAIOAuthSessions.mu.Unlock()
-		return false, "OAuth session expired. Restart login from Glowby OSS."
+		return false, "OAuth session expired. Restart login from Glowbom OSS."
 	}
 
 	if session.Phase == "succeeded" {

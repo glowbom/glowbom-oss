@@ -32,16 +32,11 @@ import type {
 } from './types/opencode';
 
 type CredentialMode = 'auth' | 'api-key' | 'opencode-config';
-const OPENCODE_RECOMMENDED_MODEL_VALUE = '__opencode_recommended__';
+const OPENCODE_DEFAULT_MODEL_VALUE = '__opencode_default__';
 const MAX_INSTRUCTION_ATTACHMENT_BYTES = 40 * 1024 * 1024;
-const PROJECT_HISTORY_STORAGE_KEY = 'glowby_oss_project_history';
+const PROJECT_HISTORY_STORAGE_KEY = 'glowbom_oss_project_history';
+const LEGACY_PROJECT_HISTORY_STORAGE_KEY = 'glowby_oss_project_history';
 const DEFAULT_BUILD_INSTRUCTIONS = 'Make this project production ready. Follow AGENTS.md when present.';
-const OPENCODE_MODEL_PREFERENCE_ORDER = [
-  { providerId: 'openai', modelIds: ['gpt-5.4'] },
-  { providerId: 'opencode', modelIds: ['big-pickle'] },
-  { providerId: 'openai', modelIds: ['gpt-5.3-codex', 'gpt-5.2', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini'] },
-  { providerId: 'opencode', modelIds: ['kimi-k2.5-free', 'glm-5-free', 'minimax-m2.5-free'] },
-] as const;
 
 const RUN_STATUS_LABEL: Record<string, string> = {
   idle: 'Ready',
@@ -62,11 +57,25 @@ const DEFAULT_PROVIDER_KEYS: ProviderKeyState = {
   elevenLabsKey: '',
 };
 
-const PROVIDER_KEYS_STORAGE_KEY = 'glowby_oss_provider_keys';
+const PROVIDER_KEYS_STORAGE_KEY = 'glowbom_oss_provider_keys';
+const LEGACY_PROVIDER_KEYS_STORAGE_KEY = 'glowby_oss_provider_keys';
+
+function readMigratedLocalStorage(key: string, legacyKey: string): string | null {
+  const currentValue = localStorage.getItem(key);
+  if (currentValue !== null) {
+    return currentValue;
+  }
+
+  const legacyValue = localStorage.getItem(legacyKey);
+  if (legacyValue !== null) {
+    localStorage.setItem(key, legacyValue);
+  }
+  return legacyValue;
+}
 
 function loadProviderKeys(): ProviderKeyState {
   try {
-    const raw = localStorage.getItem(PROVIDER_KEYS_STORAGE_KEY);
+    const raw = readMigratedLocalStorage(PROVIDER_KEYS_STORAGE_KEY, LEGACY_PROVIDER_KEYS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       return { ...DEFAULT_PROVIDER_KEYS, ...parsed };
@@ -85,11 +94,14 @@ function saveProviderKeys(keys: ProviderKeyState): void {
   }
 }
 
-const IMAGE_SOURCE_STORAGE_KEY = 'glowby_oss_image_source';
+const IMAGE_SOURCE_STORAGE_KEY = 'glowbom_oss_image_source';
+const LEGACY_IMAGE_SOURCE_STORAGE_KEY = 'glowby_oss_image_source';
+const OPENAI_IMAGE_SOURCE = 'Glowbom Images (gpt-image-2)';
+const XAI_IMAGE_SOURCE = 'Glowbom Images (Grok Imagine Image Quality)';
 
 function loadImageSource(): string {
   try {
-    return localStorage.getItem(IMAGE_SOURCE_STORAGE_KEY) || '';
+    return readMigratedLocalStorage(IMAGE_SOURCE_STORAGE_KEY, LEGACY_IMAGE_SOURCE_STORAGE_KEY) || '';
   } catch {
     return '';
   }
@@ -103,12 +115,13 @@ function saveImageSource(value: string): void {
   }
 }
 
-const CREDENTIAL_MODE_STORAGE_KEY = 'glowby_oss_credential_mode';
-const VALID_CREDENTIAL_MODES: CredentialMode[] = ['auth', 'api-key', 'opencode-config'];
+const CREDENTIAL_MODE_STORAGE_KEY = 'glowbom_oss_credential_mode';
+const LEGACY_CREDENTIAL_MODE_STORAGE_KEY = 'glowby_oss_credential_mode';
+const VALID_CREDENTIAL_MODES: CredentialMode[] = ['opencode-config'];
 
 function loadCredentialMode(): CredentialMode {
   try {
-    const raw = localStorage.getItem(CREDENTIAL_MODE_STORAGE_KEY);
+    const raw = readMigratedLocalStorage(CREDENTIAL_MODE_STORAGE_KEY, LEGACY_CREDENTIAL_MODE_STORAGE_KEY);
     if (raw && VALID_CREDENTIAL_MODES.includes(raw as CredentialMode)) {
       return raw as CredentialMode;
     }
@@ -126,7 +139,8 @@ function saveCredentialMode(mode: CredentialMode): void {
   }
 }
 
-const TARGET_SELECTION_STORAGE_KEY = 'glowby_oss_selected_targets';
+const TARGET_SELECTION_STORAGE_KEY = 'glowbom_oss_selected_targets';
+const LEGACY_TARGET_SELECTION_STORAGE_KEY = 'glowby_oss_selected_targets';
 
 const BUILD_TARGETS = [
   { id: 'prototype', label: 'Prototype', dir: 'prototype' },
@@ -139,7 +153,7 @@ const ALL_TARGET_IDS: string[] = BUILD_TARGETS.map((t) => t.id);
 
 function loadSelectedTargets(): string[] {
   try {
-    const raw = localStorage.getItem(TARGET_SELECTION_STORAGE_KEY);
+    const raw = readMigratedLocalStorage(TARGET_SELECTION_STORAGE_KEY, LEGACY_TARGET_SELECTION_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -161,12 +175,31 @@ function saveSelectedTargets(ids: string[]): void {
   }
 }
 
-function validateImageSource(source: string, keys: ProviderKeyState): string {
-  if (!source) return '';
-  if (source.includes('gpt-image') && !keys.openaiKey.trim()) return '';
-  if (source.includes('Nano Banana') && !keys.geminiKey.trim()) return '';
-  if (source.includes('Grok') && !keys.xaiKey.trim()) return '';
+function normalizeImageSource(source: string): string {
+  if (source === 'Glowby Images (gpt-image-1)' || source === 'Glowby Images (gpt-image-1.5)') {
+    return OPENAI_IMAGE_SOURCE;
+  }
+  if (
+    source === 'Glowby Images (Grok Imagine Image Pro)' ||
+    source === 'Grok Imagine Image Pro' ||
+    source === 'Glowby Images (Grok 2 Image Gen)' ||
+    source === 'Grok 2 Image Gen'
+  ) {
+    return XAI_IMAGE_SOURCE;
+  }
+  if (source.startsWith('Glowby Images')) {
+    return source.replace(/^Glowby Images/, 'Glowbom Images');
+  }
   return source;
+}
+
+function validateImageSource(source: string, keys: ProviderKeyState): string {
+  const normalizedSource = normalizeImageSource(source);
+  if (!normalizedSource) return '';
+  if (normalizedSource.includes('gpt-image') && !keys.openaiKey.trim()) return '';
+  if (normalizedSource.includes('Nano Banana') && !keys.geminiKey.trim()) return '';
+  if (normalizedSource.includes('Grok') && !keys.xaiKey.trim()) return '';
+  return normalizedSource;
 }
 
 function suggestBundleID(name: string): string {
@@ -187,13 +220,6 @@ interface ProjectHistoryEntry {
   name: string;
   version: string;
   lastOpenedAt: string;
-}
-
-interface PreferredOpenCodeModel {
-  value: string;
-  providerLabel: string;
-  modelLabel: string;
-  fullLabel: string;
 }
 
 interface HistoryViewEntry extends Omit<OpenCodeProjectHistoryEntry, 'attachments'> {
@@ -464,54 +490,6 @@ function upsertProjectHistory(previous: ProjectHistoryEntry[], entry: ProjectHis
   return normalizeProjectHistory([entry, ...previous.filter((item) => item.path !== entry.path)]);
 }
 
-function normalizeOpenCodeLookupValue(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-function formatOpenCodeModelSelection(
-  provider: OpenCodeAvailableProvider,
-  model: OpenCodeAvailableProvider['models'][number],
-): PreferredOpenCodeModel {
-  const providerLabel = provider.displayName || provider.id;
-  const modelLabel = model.displayName || model.id;
-
-  return {
-    value: `${provider.id}/${model.id}`,
-    providerLabel,
-    modelLabel,
-    fullLabel: `${providerLabel}: ${modelLabel}`,
-  };
-}
-
-function preferredOpenCodeModel(providers: OpenCodeAvailableProvider[]): PreferredOpenCodeModel | null {
-  for (const preference of OPENCODE_MODEL_PREFERENCE_ORDER) {
-    const provider = providers.find(
-      (item) => normalizeOpenCodeLookupValue(item.id) === normalizeOpenCodeLookupValue(preference.providerId),
-    );
-    if (!provider) {
-      continue;
-    }
-
-    for (const candidateModelId of preference.modelIds) {
-      const model = provider.models.find(
-        (item) => normalizeOpenCodeLookupValue(item.id) === normalizeOpenCodeLookupValue(candidateModelId),
-      );
-      if (model) {
-        return formatOpenCodeModelSelection(provider, model);
-      }
-    }
-  }
-
-  for (const provider of providers) {
-    const firstModel = provider.models[0];
-    if (firstModel) {
-      return formatOpenCodeModelSelection(provider, firstModel);
-    }
-  }
-
-  return null;
-}
-
 function inferProviderFromCustomModel(customModel: string): ProviderID | null {
   const trimmed = customModel.trim();
   const slashIndex = trimmed.indexOf('/');
@@ -605,7 +583,7 @@ export default function App() {
   const [imageSource, setImageSourceRaw] = useState(() => validateImageSource(loadImageSource(), loadProviderKeys()));
   const setImageSource = (value: string | ((prev: string) => string)) => {
     setImageSourceRaw((prev) => {
-      const next = typeof value === 'function' ? value(prev) : value;
+      const next = normalizeImageSource(typeof value === 'function' ? value(prev) : value);
       saveImageSource(next);
       return next;
     });
@@ -625,7 +603,7 @@ export default function App() {
   const [openAIModelsInfo, setOpenAIModelsInfo] = useState<string | null>(null);
   const [openAIModelsWarning, setOpenAIModelsWarning] = useState<string | null>(null);
   const [openCodeConfigProviders, setOpenCodeConfigProviders] = useState<OpenCodeAvailableProvider[]>([]);
-  const [selectedOpenCodeModel, setSelectedOpenCodeModel] = useState(OPENCODE_RECOMMENDED_MODEL_VALUE);
+  const [selectedOpenCodeModel, setSelectedOpenCodeModel] = useState(OPENCODE_DEFAULT_MODEL_VALUE);
   const [isLoadingOpenCodeModels, setIsLoadingOpenCodeModels] = useState(false);
   const [openCodeModelsInfo, setOpenCodeModelsInfo] = useState<string | null>(null);
   const [openCodeModelsWarning, setOpenCodeModelsWarning] = useState<string | null>(null);
@@ -715,20 +693,16 @@ export default function App() {
   const vscodeAction = useMemo(() => ideActionFor(ideActions, 'vscode'), [ideActions]);
   const selectedProjectPath = projectPath.trim();
   const attachmentCount = instructionAttachments.length;
-  const recommendedOpenCodeModel = useMemo(
-    () => preferredOpenCodeModel(openCodeConfigProviders),
-    [openCodeConfigProviders],
-  );
   const resolvedOpenCodeModelValue = useMemo(() => {
-    if (selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
-      return recommendedOpenCodeModel?.value || '';
+    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
+      return '';
     }
 
     return selectedOpenCodeModel;
-  }, [recommendedOpenCodeModel, selectedOpenCodeModel]);
+  }, [selectedOpenCodeModel]);
   const selectedOpenCodeModelLabel = useMemo(() => {
-    if (selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
-      return recommendedOpenCodeModel?.fullLabel || 'Recommended model';
+    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
+      return 'OpenCode configured default';
     }
 
     for (const provider of openCodeConfigProviders) {
@@ -739,10 +713,7 @@ export default function App() {
     }
 
     return selectedOpenCodeModel;
-  }, [openCodeConfigProviders, recommendedOpenCodeModel, selectedOpenCodeModel]);
-  const recommendedOpenCodeModelOptionLabel = recommendedOpenCodeModel
-    ? `Recommended · ${recommendedOpenCodeModel.modelLabel}`
-    : 'Recommended';
+  }, [openCodeConfigProviders, selectedOpenCodeModel]);
   const systemNeedsAttention = Boolean(
     healthError || authError || health?.healthy === false || authStatus?.serverRunning === false,
   );
@@ -850,10 +821,18 @@ export default function App() {
       return;
     }
 
+    if (decodedSelection) {
+      const normalizedSelection = encodeModelOptionValue(decodedSelection.providerId, decodedSelection.modelId);
+      if (normalizedSelection !== selectedModelOption && allOptionValues.includes(normalizedSelection)) {
+        setSelectedModelOption(normalizedSelection);
+        return;
+      }
+    }
+
     if (!selectedModelOption || !allOptionValues.includes(selectedModelOption)) {
       setSelectedModelOption(allOptionValues[0] || '');
     }
-  }, [allOptionValues, selectedModelOption]);
+  }, [allOptionValues, decodedSelection, selectedModelOption]);
 
   const refreshSetup = async () => {
     setIsCheckingSetup(true);
@@ -906,7 +885,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(PROJECT_HISTORY_STORAGE_KEY);
+      const raw = readMigratedLocalStorage(PROJECT_HISTORY_STORAGE_KEY, LEGACY_PROJECT_HISTORY_STORAGE_KEY);
       if (!raw) {
         return;
       }
@@ -1021,7 +1000,7 @@ export default function App() {
       setOpenCodeModelsInfo(null);
       setOpenCodeModelsWarning(null);
       setIsLoadingOpenCodeModels(false);
-      setSelectedOpenCodeModel(OPENCODE_RECOMMENDED_MODEL_VALUE);
+      setSelectedOpenCodeModel(OPENCODE_DEFAULT_MODEL_VALUE);
       return;
     }
 
@@ -1053,7 +1032,7 @@ export default function App() {
           `Loaded ${providers.length} provider${providers.length === 1 ? '' : 's'} and ${modelCount} model${modelCount === 1 ? '' : 's'} from OpenCode config.`,
         );
         if (modelCount === 0) {
-          setOpenCodeModelsWarning('OpenCode returned no models. Refresh Settings or choose another AI access mode.');
+          setOpenCodeModelsWarning('OpenCode returned no models. Configure a provider in OpenCode, then refresh Settings.');
         } else {
           setOpenCodeModelsWarning(null);
         }
@@ -1066,7 +1045,7 @@ export default function App() {
         setOpenCodeConfigProviders([]);
         setOpenCodeModelsInfo(null);
         setOpenCodeModelsWarning(
-          `Could not load OpenCode provider catalog. Refresh Settings or choose another AI access mode. ${toErrorMessage(error, '')}`.trim(),
+          `Could not load the OpenCode provider catalog. Check your OpenCode setup, then refresh Settings. ${toErrorMessage(error, '')}`.trim(),
         );
       })
       .finally(() => {
@@ -1096,7 +1075,7 @@ export default function App() {
       return;
     }
 
-    if (selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
+    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
       return;
     }
 
@@ -1105,7 +1084,7 @@ export default function App() {
     );
 
     if (!exists) {
-      setSelectedOpenCodeModel(OPENCODE_RECOMMENDED_MODEL_VALUE);
+      setSelectedOpenCodeModel(OPENCODE_DEFAULT_MODEL_VALUE);
     }
   }, [isOpenCodeConfigMode, openCodeConfigProviders, selectedOpenCodeModel]);
 
@@ -1573,7 +1552,7 @@ export default function App() {
     setIsUpdatingAuthConnection(true);
     let popupWindow: Window | null = null;
     try {
-      popupWindow = window.open('', 'glowby-chatgpt-oauth', 'popup,width=560,height=760');
+      popupWindow = window.open('', 'glowbom-chatgpt-oauth', 'popup,width=560,height=760');
       if (!popupWindow) {
         throw new Error('Popup blocked. Allow popups for this site and try Connect again.');
       }
@@ -1706,7 +1685,7 @@ export default function App() {
     const finalInstructionsWithTargets = finalInstructions + targetGuidance;
 
     if (healthError || health?.healthy === false) {
-      setFormError('Glowby cannot reach the local backend right now. Open Settings, refresh the checks, and try again.');
+      setFormError('Glowbom OSS cannot reach the local backend right now. Open Settings, refresh the checks, and try again.');
       setIsSettingsOpen(true);
       return;
     }
@@ -1728,11 +1707,6 @@ export default function App() {
     let modelValue = '';
     if (isOpenCodeConfigMode) {
       modelValue = resolvedOpenCodeModelValue;
-      if (!modelValue) {
-        setFormError('No OpenCode model is available right now. Open Settings and refresh the model list.');
-        setIsSettingsOpen(true);
-        return;
-      }
     } else {
       const customModelTrimmed = customModel.trim();
       const customModelProvider = inferProviderFromCustomModel(customModelTrimmed);
@@ -2073,8 +2047,8 @@ export default function App() {
             <img alt="Glowbom" src={topbarLogoSrc} />
           </a>
           <nav className="topbar-links">
-            <a href="https://glowbom.com/glowby/" rel="noreferrer" target="_blank">
-              Glowby
+            <a href="https://glowbom.com/oss" rel="noreferrer" target="_blank">
+              Glowbom OSS
             </a>
             <a href="https://glowbom.com/desktop/" rel="noreferrer" target="_blank">
               Desktop
@@ -2101,7 +2075,7 @@ export default function App() {
       <main className="page">
         <header className="brand-header brand-header-minimal">
           <div className="brand-copy">
-            <h1>Glowby OSS</h1>
+            <h1>Glowbom OSS</h1>
             <p>Build Anything Locally</p>
           </div>
         </header>
@@ -2477,7 +2451,7 @@ export default function App() {
                     {historyEntries.length === 0 ? (
                       <div className="empty-inline-state compact-empty-state">
                         <strong>{isLoadingHistory ? 'Loading history...' : 'No history yet'}</strong>
-                        <p className="meta">Build once and Glowby will archive the prompt and attached files here.</p>
+                        <p className="meta">Build once and Glowbom OSS will archive the prompt and attached files here.</p>
                       </div>
                     ) : (
                       <div className="run-history-list project-history-list">
@@ -2617,8 +2591,7 @@ export default function App() {
                     onChange={(event) => setCredentialMode(event.target.value as CredentialMode)}
                     value={credentialMode}
                   >
-                    <option value="auth">Connected account</option>
-                    <option value="api-key">API keys</option>
+                    {/* Connected accounts and direct API keys return with the shared desktop onboarding. */}
                     <option value="opencode-config">OpenCode setup</option>
                   </select>
                 </div>
@@ -2658,7 +2631,7 @@ export default function App() {
                       onChange={(event) => setSelectedOpenCodeModel(event.target.value)}
                       value={selectedOpenCodeModel}
                     >
-                      <option value={OPENCODE_RECOMMENDED_MODEL_VALUE}>{recommendedOpenCodeModelOptionLabel}</option>
+                      <option value={OPENCODE_DEFAULT_MODEL_VALUE}>OpenCode configured default</option>
                       {openCodeConfigProviders.map((provider) => (
                         <optgroup key={provider.id} label={provider.displayName || provider.id}>
                           {provider.models.map((model) => (
@@ -2714,7 +2687,7 @@ export default function App() {
                 <div className="field-grid">
                   <div>
                     <label className="field-label" htmlFor="imageSource">
-                      Glowby Images
+                      Glowbom Images
                     </label>
                     <select
                       className="input"
@@ -2725,13 +2698,13 @@ export default function App() {
                     >
                       <option value="">None</option>
                       {providerKeys.openaiKey.trim() ? (
-                        <option value="Glowby Images (gpt-image-1.5)">GPT Image 1.5</option>
+                        <option value={OPENAI_IMAGE_SOURCE}>GPT Image 2</option>
                       ) : null}
                       {providerKeys.geminiKey.trim() ? (
-                        <option value="Glowby Images (Nano Banana 2)">Nano Banana 2</option>
+                        <option value="Glowbom Images (Nano Banana 2)">Nano Banana 2</option>
                       ) : null}
                       {providerKeys.xaiKey.trim() ? (
-                        <option value="Glowby Images (Grok Imagine Image Pro)">Grok Imagine Image Pro</option>
+                        <option value={XAI_IMAGE_SOURCE}>Grok Imagine Image Quality</option>
                       ) : null}
                     </select>
                   </div>
@@ -2863,7 +2836,7 @@ export default function App() {
               ) : (
                 <div className="empty-inline-state">
                   <strong>Preparing current build...</strong>
-                  <p className="meta">Glowby is working on the current run.</p>
+                  <p className="meta">Glowbom OSS is working on the current run.</p>
                 </div>
               )
             ) : (
@@ -2875,7 +2848,7 @@ export default function App() {
                   setInstructions(event.target.value);
                   setFormError(null);
                 }}
-                placeholder="What should Glowby build?"
+                placeholder="What should Glowbom build?"
                 rows={7}
                 value={instructions}
               />
@@ -2930,7 +2903,7 @@ export default function App() {
           <div className="card-title-row">
             <div>
               <h2>Activity</h2>
-              <p className="meta">Logs, follow-up questions, and permission requests show up here while Glowby works.</p>
+              <p className="meta">Logs, follow-up questions, and permission requests show up here while Glowbom OSS works.</p>
             </div>
             <label className="checkbox-row">
               <input

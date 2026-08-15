@@ -1,0 +1,12 @@
+{
+  "name": "glowbom-backend",
+  "version": "1.0.0",
+  "description": "Glowbom backend with Veo video generation",
+  "main": "veo-cli.js",
+  "scripts": {
+    "install-veo": "npm install @google/genai"
+  },
+  "dependencies": {
+    "@google/genai": "^0.21.0"
+  }
+}

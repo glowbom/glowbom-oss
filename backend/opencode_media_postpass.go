@@ -183,7 +183,7 @@ func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequ
 	projectPath = projectAbs
 
 	if req.ImageSource == "" {
-		req.ImageSource = "Glowby Images (gpt-image-1.5)"
+		req.ImageSource = openAIImageSourceLabel
 	}
 	if req.VeoGeminiKey == "" {
 		req.VeoGeminiKey = req.GeminiKey
@@ -631,13 +631,13 @@ func generateElevenLabsAudioForPostPass(
 func generateImageForPostPass(req OpenCodeMediaPostPassRequest, prompt, referenceImageBase64 string) (string, string, error) {
 	source := strings.TrimSpace(req.ImageSource)
 	if source == "" {
-		source = "Glowby Images (gpt-image-1.5)"
+		source = openAIImageSourceLabel
 	}
 	lowerSource := strings.ToLower(source)
 	useReference := strings.TrimSpace(referenceImageBase64) != ""
 
 	switch {
-	case strings.Contains(lowerSource, "gpt-image-1"):
+	case isOpenAIImageSource(source):
 		if req.OpenAIKey == "" {
 			return "", source, fmt.Errorf("openai key is required for %s", source)
 		}
@@ -672,22 +672,22 @@ func generateImageForPostPass(req OpenCodeMediaPostPassRequest, prompt, referenc
 		if req.OpenAIKey != "" {
 			if useReference {
 				dataURI, err := callOpenAIImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.OpenAIKey)
-				return dataURI, "Glowby Images (gpt-image-1.5)", err
+				return dataURI, openAIImageSourceLabel, err
 			}
 			dataURI, err := callOpenAIImageGeneration(prompt, "", "", req.OpenAIKey)
-			return dataURI, "Glowby Images (gpt-image-1.5)", err
+			return dataURI, openAIImageSourceLabel, err
 		}
 		if req.GeminiKey != "" {
 			if useReference {
 				dataURI, err := callGeminiImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.GeminiKey)
-				return dataURI, "Glowby Images (Nano Banana 2)", err
+				return dataURI, "Glowbom Images (Nano Banana 2)", err
 			}
 			dataURI, err := callGeminiImageGeneration(prompt, "", "", req.GeminiKey)
-			return dataURI, "Glowby Images (Nano Banana 2)", err
+			return dataURI, "Glowbom Images (Nano Banana 2)", err
 		}
 		if req.XaiKey != "" {
 			dataURI, err := callGrokImageGeneration(prompt, req.XaiKey, "")
-			return dataURI, "Glowby Images (Grok Imagine Image Pro)", err
+			return dataURI, xAIImageSourceLabel, err
 		}
 		return "", source, fmt.Errorf("no image provider key available")
 	}

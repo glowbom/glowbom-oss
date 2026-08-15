@@ -10,10 +10,10 @@ import (
 func main() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/healthz", glowbyHealthHandler)
-	mux.HandleFunc("/", glowbyBackendHomeHandler)
-	mux.HandleFunc("/favicon.png", glowbyFaviconHandler)
-	mux.HandleFunc("/logo-svg.svg", glowbyLogoSVGHandler)
+	mux.HandleFunc("/healthz", glowbomHealthHandler)
+	mux.HandleFunc("/", glowbomBackendHomeHandler)
+	mux.HandleFunc("/favicon.png", glowbomFaviconHandler)
+	mux.HandleFunc("/logo-svg.svg", glowbomLogoSVGHandler)
 
 	mux.HandleFunc("/chatWithAI", chatWithAIHandler)
 	mux.HandleFunc("/webSearch", webSearchHandler)
@@ -62,11 +62,11 @@ func main() {
 		port = "4569"
 	}
 	listenAddr := backendListenAddr(port)
-	if glowbyServerToken() == "" {
-		fmt.Println("Warning: GLOWBY_SERVER_TOKEN is not set; backend auth is disabled.")
+	if glowbomServerToken() == "" {
+		fmt.Println("Warning: GLOWBOM_SERVER_TOKEN is not set; backend auth is disabled.")
 	} else {
 		fmt.Println("Backend auth enabled for non-public routes.")
 	}
 	fmt.Printf("Server running on http://%s\n", listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, withGlowbySecurity(mux)))
+	log.Fatal(http.ListenAndServe(listenAddr, withGlowbomSecurity(mux)))
 }

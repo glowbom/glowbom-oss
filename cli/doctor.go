@@ -16,7 +16,7 @@ func runDoctor() int {
 	checks := []depCheck{
 		{name: "go", required: true, fixHint: "Install: https://go.dev/dl/"},
 		{name: "bun", required: true, fixHint: "Install: https://bun.sh/"},
-		{name: "opencode", required: true, fixHint: "Install: bun install -g opencode (or see https://opencode.ai)"},
+		{name: "opencode", required: true, fixHint: "Install: bun install -g opencode-ai (or see https://opencode.ai)"},
 	}
 
 	issues := 0
@@ -40,13 +40,13 @@ func runDoctor() int {
 		}
 	}
 
-	if root, err := findGlowbyRoot(); err != nil {
+	if root, err := findGlowbomRoot(); err != nil {
 		issues++
-		fmt.Println("  [MISSING] glowby checkout")
+		fmt.Println("  [MISSING] Glowbom OSS checkout")
 		fmt.Println("            Could not find sibling backend/ and web/ directories.")
-		fmt.Println("            Clone https://github.com/glowbom/glowby and run `glowby code` from the repo root.")
+		fmt.Println("            Clone https://github.com/glowbom/glowbom-oss and run `glowbom start` from the repo root.")
 	} else {
-		fmt.Printf("  [ok]    glowby checkout (%s)\n", root)
+		fmt.Printf("  [ok]    Glowbom OSS checkout (%s)\n", root)
 	}
 
 	fmt.Println()

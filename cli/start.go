@@ -28,7 +28,7 @@ const (
 	webPort     = 4572
 )
 
-func runCode(args []string) int {
+func runStart(args []string) int {
 	showLocalAuth := false
 	var positionalArgs []string
 	for _, arg := range args {
@@ -43,18 +43,18 @@ func runCode(args []string) int {
 		}
 	}
 	if len(positionalArgs) > 1 {
-		fmt.Fprintln(os.Stderr, "error: glowby code accepts at most one project path")
+		fmt.Fprintln(os.Stderr, "error: glowbom start accepts at most one project path")
 		return 2
 	}
 
-	glowbyRoot, err := findGlowbyRoot()
+	glowbomRoot, err := findGlowbomRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
 
-	backendDir := filepath.Join(glowbyRoot, "backend")
-	webDir := filepath.Join(glowbyRoot, "web")
+	backendDir := filepath.Join(glowbomRoot, "backend")
+	webDir := filepath.Join(glowbomRoot, "web")
 
 	// Validate directories exist
 	if !isDir(backendDir) {
@@ -92,11 +92,11 @@ func runCode(args []string) int {
 		cancel()
 	}()
 
-	if err := reclaimManagedService(glowbyRoot, "backend", backendPort); err != nil {
+	if err := reclaimManagedService(glowbomRoot, "backend", backendPort); err != nil {
 		fmt.Fprintf(os.Stderr, "error preparing backend port: %v\n", err)
 		return 1
 	}
-	if err := reclaimManagedService(glowbyRoot, "web", webPort); err != nil {
+	if err := reclaimManagedService(glowbomRoot, "web", webPort); err != nil {
 		fmt.Fprintf(os.Stderr, "error preparing web port: %v\n", err)
 		return 1
 	}
@@ -110,7 +110,7 @@ func runCode(args []string) int {
 		return 1
 	}
 
-	serverToken, err := resolveOrGenerateSecret("GLOWBY_SERVER_TOKEN", "GLOWBOM_SERVER_TOKEN")
+	serverToken, err := resolveOrGenerateSecret("GLOWBOM_SERVER_TOKEN", "GLOWBY_SERVER_TOKEN")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error creating backend security token: %v\n", err)
 		return 1
@@ -123,19 +123,19 @@ func runCode(args []string) int {
 
 	backendEnv := append(
 		os.Environ(),
-		"GLOWBY_BIND_HOST=127.0.0.1",
 		"GLOWBOM_BIND_HOST=127.0.0.1",
-		"GLOWBY_SERVER_TOKEN="+serverToken,
 		"GLOWBOM_SERVER_TOKEN="+serverToken,
+		"GLOWBY_BIND_HOST=127.0.0.1",
+		"GLOWBY_SERVER_TOKEN="+serverToken,
 		"OPENCODE_SERVER_PASSWORD="+opencodePassword,
 	)
 	webEnv := append(
 		os.Environ(),
-		"GLOWBY_BIND_HOST=127.0.0.1",
 		"GLOWBOM_BIND_HOST=127.0.0.1",
+		"GLOWBY_BIND_HOST=127.0.0.1",
 		fmt.Sprintf("VITE_BACKEND_TARGET=http://127.0.0.1:%d", backendPort),
-		"VITE_GLOWBY_SERVER_TOKEN="+serverToken,
 		"VITE_GLOWBOM_SERVER_TOKEN="+serverToken,
+		"VITE_GLOWBY_SERVER_TOKEN="+serverToken,
 	)
 
 	// Start backend
@@ -175,7 +175,7 @@ func runCode(args []string) int {
 		}
 	}
 
-	if err := recordManagedService(glowbyRoot, "backend", backendPort); err != nil {
+	if err := recordManagedService(glowbomRoot, "backend", backendPort); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not record backend process info: %v\n", err)
 	}
 
@@ -196,12 +196,12 @@ func runCode(args []string) int {
 	go func() {
 		url := fmt.Sprintf("http://127.0.0.1:%d", webPort)
 		if waitForServer(ctx, url, 30*time.Second) {
-			if err := recordManagedService(glowbyRoot, "web", webPort); err != nil {
+			if err := recordManagedService(glowbomRoot, "web", webPort); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: could not record web process info: %v\n", err)
 			}
 			if projectPath != "" {
 				fmt.Printf("\nProject path hint: %s\n", projectPath)
-				fmt.Println("Paste or choose this folder in the Glowby UI to load your project.")
+				fmt.Println("Paste or choose this folder in the Glowbom OSS UI to load your project.")
 			}
 			fmt.Printf("\nOpening %s\n\n", url)
 			openBrowser(url)
@@ -234,15 +234,15 @@ func runCode(args []string) int {
 	if err := stopManagedAgentService(agentPort); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not stop OpenCode agent server on port %d: %v\n", agentPort, err)
 	}
-	clearManagedService(glowbyRoot, "backend")
-	clearManagedService(glowbyRoot, "web")
+	clearManagedService(glowbomRoot, "backend")
+	clearManagedService(glowbomRoot, "web")
 	return exitCode
 }
 
-func findGlowbyRoot() (string, error) {
+func findGlowbomRoot() (string, error) {
 	exe, err := os.Executable()
 	if err == nil {
-		if root, ok := searchGlowbyRoot(filepath.Dir(exe)); ok {
+		if root, ok := searchGlowbomRoot(filepath.Dir(exe)); ok {
 			return root, nil
 		}
 	}
@@ -251,14 +251,14 @@ func findGlowbyRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot determine working directory: %w", err)
 	}
-	if root, ok := searchGlowbyRoot(cwd); ok {
+	if root, ok := searchGlowbomRoot(cwd); ok {
 		return root, nil
 	}
 
-	return "", fmt.Errorf("cannot find the Glowby checkout root (expected sibling backend/ and web/ directories). Run from the glowby repo root or one of its subdirectories")
+	return "", fmt.Errorf("cannot find the Glowbom OSS checkout root (expected sibling backend/ and web/ directories). Run from the glowbom-oss repo root or one of its subdirectories")
 }
 
-func searchGlowbyRoot(start string) (string, bool) {
+func searchGlowbomRoot(start string) (string, bool) {
 	dir := start
 	for {
 		if isDir(filepath.Join(dir, "backend")) && isDir(filepath.Join(dir, "web")) {
@@ -303,30 +303,30 @@ func waitForServer(ctx context.Context, url string, timeout time.Duration) bool 
 	}
 }
 
-func reclaimManagedService(glowbyRoot, service string, port int) error {
+func reclaimManagedService(glowbomRoot, service string, port int) error {
 	pids, err := listPortPIDs(port)
 	if err != nil {
 		return err
 	}
 	if len(pids) == 0 {
-		clearManagedService(glowbyRoot, service)
+		clearManagedService(glowbomRoot, service)
 		return nil
 	}
 
-	recorded, err := readManagedService(glowbyRoot, service)
+	recorded, err := readManagedService(glowbomRoot, service)
 	if err != nil {
 		return err
 	}
 	if len(recorded) == 0 || !isSubset(pids, recorded) {
-		if service == "backend" && isExpectedGlowbyService(service, port) {
+		if service == "backend" && isExpectedGlowbomService(service, port) {
 			// Backend auth is per-run, so pid files can drift across rebuilds/restarts.
-			// If /healthz still identifies Glowby on this port, reclaim it safely.
-		} else if !isExpectedGlowbyService(service, port) {
+			// If /healthz still identifies Glowbom OSS on this port, reclaim it safely.
+		} else if !isExpectedGlowbomService(service, port) {
 			return fmt.Errorf("port %d is already in use by another app. Stop it and retry", port)
 		}
 	}
 
-	fmt.Printf("Stopping existing Glowby %s on port %d...\n", service, port)
+	fmt.Printf("Stopping existing Glowbom OSS %s on port %d...\n", service, port)
 	for _, pid := range pids {
 		proc, findErr := os.FindProcess(pid)
 		if findErr != nil {
@@ -340,7 +340,7 @@ func reclaimManagedService(glowbyRoot, service string, port int) error {
 		return fmt.Errorf("port %d did not become available after stopping the existing %s", port, service)
 	}
 
-	clearManagedService(glowbyRoot, service)
+	clearManagedService(glowbomRoot, service)
 	return nil
 }
 
@@ -357,7 +357,7 @@ func reclaimManagedAgentService(port int) error {
 	return killProcessesOnPort(port, pids, "agent server")
 }
 
-func recordManagedService(glowbyRoot, service string, port int) error {
+func recordManagedService(glowbomRoot, service string, port int) error {
 	pids, err := listPortPIDs(port)
 	if err != nil {
 		return err
@@ -366,7 +366,7 @@ func recordManagedService(glowbyRoot, service string, port int) error {
 		return fmt.Errorf("no process found listening on port %d", port)
 	}
 
-	stateDir := managedStateDir(glowbyRoot)
+	stateDir := managedStateDir(glowbomRoot)
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return err
 	}
@@ -375,11 +375,11 @@ func recordManagedService(glowbyRoot, service string, port int) error {
 	for _, pid := range pids {
 		lines = append(lines, strconv.Itoa(pid))
 	}
-	return os.WriteFile(managedStatePath(glowbyRoot, service), []byte(strings.Join(lines, "\n")), 0o644)
+	return os.WriteFile(managedStatePath(glowbomRoot, service), []byte(strings.Join(lines, "\n")), 0o644)
 }
 
-func readManagedService(glowbyRoot, service string) ([]int, error) {
-	data, err := os.ReadFile(managedStatePath(glowbyRoot, service))
+func readManagedService(glowbomRoot, service string) ([]int, error) {
+	data, err := os.ReadFile(managedStatePath(glowbomRoot, service))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -406,8 +406,8 @@ func readManagedService(glowbyRoot, service string) ([]int, error) {
 	return uniqueSortedInts(pids), nil
 }
 
-func clearManagedService(glowbyRoot, service string) {
-	_ = os.Remove(managedStatePath(glowbyRoot, service))
+func clearManagedService(glowbomRoot, service string) {
+	_ = os.Remove(managedStatePath(glowbomRoot, service))
 }
 
 func stopManagedAgentService(port int) error {
@@ -421,13 +421,14 @@ func stopManagedAgentService(port int) error {
 	return killProcessesOnPort(port, pids, "agent server")
 }
 
-func managedStateDir(glowbyRoot string) string {
-	sum := sha1.Sum([]byte(glowbyRoot))
+func managedStateDir(glowbomRoot string) string {
+	sum := sha1.Sum([]byte(glowbomRoot))
+	// Keep the legacy directory name so upgraded CLIs can reclaim earlier managed processes.
 	return filepath.Join(os.TempDir(), "glowby", fmt.Sprintf("%x", sum[:8]))
 }
 
-func managedStatePath(glowbyRoot, service string) string {
-	return filepath.Join(managedStateDir(glowbyRoot), fmt.Sprintf("%s.pid", service))
+func managedStatePath(glowbomRoot, service string) string {
+	return filepath.Join(managedStateDir(glowbomRoot), fmt.Sprintf("%s.pid", service))
 }
 
 func waitForPortFree(port int, timeout time.Duration) bool {
@@ -458,18 +459,18 @@ func killProcessesOnPort(port int, pids []int, label string) error {
 	return nil
 }
 
-func isExpectedGlowbyService(service string, port int) bool {
+func isExpectedGlowbomService(service string, port int) bool {
 	client := &http.Client{Timeout: 1 * time.Second}
 	url := ""
-	expected := ""
+	expectedValues := []string{}
 
 	switch service {
 	case "backend":
 		url = fmt.Sprintf("http://127.0.0.1:%d/healthz", port)
-		expected = `"name":"Glowby"`
+		expectedValues = []string{`"name":"Glowbom OSS"`, `"name":"Glowby"`}
 	case "web":
 		url = fmt.Sprintf("http://127.0.0.1:%d", port)
-		expected = "<title>Glowby</title>"
+		expectedValues = []string{"<title>Glowbom OSS</title>", "<title>Glowby</title>"}
 	default:
 		return false
 	}
@@ -484,7 +485,12 @@ func isExpectedGlowbyService(service string, port int) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(body), expected)
+	for _, expected := range expectedValues {
+		if strings.Contains(string(body), expected) {
+			return true
+		}
+	}
+	return false
 }
 
 func areExpectedOpenCodeProcesses(pids []int) bool {
@@ -515,7 +521,7 @@ func resolveOrGenerateSecret(envKeys ...string) (string, error) {
 func printLocalAuth(serverToken, opencodePassword string) {
 	fmt.Println()
 	fmt.Println("Local auth credentials:")
-	fmt.Printf("  Glowby backend http://127.0.0.1:%d\n", backendPort)
+	fmt.Printf("  Glowbom OSS backend http://127.0.0.1:%d\n", backendPort)
 	fmt.Printf("    Authorization: Bearer %s\n", serverToken)
 	fmt.Printf("  OpenCode http://127.0.0.1:%s\n", localAgentPort())
 	fmt.Printf("    Username: %s\n", localOpenCodeUsername())

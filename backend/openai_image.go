@@ -12,7 +12,18 @@ import (
 	"strings"
 )
 
-// callOpenAIImageGeneration calls OpenAI's image generation API with gpt-image-1.5
+const (
+	openAIImageModelID     = "gpt-image-2"
+	openAIImageSourceLabel = "Glowbom Images (gpt-image-2)"
+)
+
+func isOpenAIImageSource(imageSource string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(imageSource))
+	return strings.Contains(normalized, "gpt-image-") ||
+		strings.Contains(normalized, "gpt image ")
+}
+
+// callOpenAIImageGeneration calls OpenAI's image generation API with the current GPT Image model.
 // Returns base64 data URI on success
 func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat string, apiKey string) (string, error) {
 	url := "https://api.openai.com/v1/images/generations"
@@ -28,10 +39,10 @@ func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat s
 		size = "1024x1024"
 	}
 
-	// Request payload for gpt-image-1.5
+	// Request payload for GPT Image 2.
 	// Using low quality for fastest experience
 	reqBody := map[string]interface{}{
-		"model":   "gpt-image-1.5",
+		"model":   openAIImageModelID,
 		"prompt":  prompt,
 		"size":    size,
 		"quality": "low", // low quality for speed
@@ -165,7 +176,7 @@ func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 
 	}
 
 	// Add model
-	if err := writer.WriteField("model", "gpt-image-1.5"); err != nil {
+	if err := writer.WriteField("model", openAIImageModelID); err != nil {
 		return "", fmt.Errorf("failed to write model: %w", err)
 	}
 

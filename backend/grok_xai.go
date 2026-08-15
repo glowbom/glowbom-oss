@@ -13,6 +13,12 @@ import (
 	"unicode/utf8"
 )
 
+const (
+	grokTextModelID        = "grok-4.3"
+	grokTextInputCostPerM  = 1.25
+	grokTextOutputCostPerM = 2.50
+)
+
 // findValidUTF8CutPoint finds a safe position to cut a string without breaking UTF-8 characters
 // Returns the largest position <= maxPos that doesn't split a multi-byte character
 func findValidUTF8CutPoint(s string, maxPos int) int {
@@ -28,7 +34,7 @@ func findValidUTF8CutPoint(s string, maxPos int) int {
 	return 0
 }
 
-// callGrok4DrawToCodeApiFull handles draw-to-code using Grok 4.1 with native vision (assuming supported)
+// callGrok4DrawToCodeApiFull handles draw-to-code using Grok 4.3 with native vision.
 func callGrok4DrawToCodeApiFull(imageBase64, userPrompt, template, imageSource, apiKey string) (*R1Response, error) {
 	if apiKey == "" {
 		return &R1Response{
@@ -45,7 +51,7 @@ func callGrok4DrawToCodeApiFull(imageBase64, userPrompt, template, imageSource, 
 	// 2) Build detailed task
 	detailedTask := buildDetailedTaskDescription(template, imageSource, userPrompt)
 
-	// 3) Construct Grok 4.1 request with vision (assuming supported)
+	// 3) Construct Grok 4.3 request with vision.
 	messages := []map[string]interface{}{
 		{
 			"role":    "system",
@@ -68,14 +74,13 @@ func callGrok4DrawToCodeApiFull(imageBase64, userPrompt, template, imageSource, 
 		},
 	}
 
-	// 4) Call xAI API with Grok 4.1
+	// 4) Call xAI API with Grok 4.3.
 	aiResp, inputTokens, outputTokens, err := callGrok4API(messages, apiKey, 8192, "")
 	if err != nil {
 		return nil, err
 	}
 
-	// Pricing snapshot (February 2026): $0.20/M input tokens, $0.50/M output tokens.
-	cost := (float64(inputTokens) / 1_000_000.0 * 0.20) + (float64(outputTokens) / 1_000_000.0 * 0.50)
+	cost := calculateGrokTextCost(inputTokens, outputTokens)
 
 	return &R1Response{
 		AIResponse: aiResp,
@@ -88,7 +93,7 @@ func callGrok4DrawToCodeApiFull(imageBase64, userPrompt, template, imageSource, 
 	}, nil
 }
 
-// callGrok4DrawToCodeStreaming handles draw-to-code with streaming for Grok 4.1
+// callGrok4DrawToCodeStreaming handles draw-to-code with streaming for Grok 4.3.
 func callGrok4DrawToCodeStreaming(w http.ResponseWriter, imageBase64, userPrompt, template, imageSource, apiKey string) error {
 	if apiKey == "" {
 		return fmt.Errorf("no xAI API key provided")
@@ -101,7 +106,7 @@ func callGrok4DrawToCodeStreaming(w http.ResponseWriter, imageBase64, userPrompt
 	// Build detailed task
 	detailedTask := buildDetailedTaskDescription(template, imageSource, userPrompt)
 
-	// Construct Grok 4.1 request with vision
+	// Construct Grok 4.3 request with vision.
 	messages := []map[string]interface{}{
 		{
 			"role":    "system",
@@ -128,7 +133,7 @@ func callGrok4DrawToCodeStreaming(w http.ResponseWriter, imageBase64, userPrompt
 	return callGrok4APIStreaming(w, messages, apiKey, 8192, "")
 }
 
-// callGrok4ApiGo handles normal chat using Grok 4.1
+// callGrok4ApiGo handles normal chat using Grok 4.3.
 func callGrok4ApiGo(prevMsgs []ChatMessage, newMsg, apiKey string) (*R1Response, error) {
 	if apiKey == "" {
 		return &R1Response{
@@ -138,7 +143,7 @@ func callGrok4ApiGo(prevMsgs []ChatMessage, newMsg, apiKey string) (*R1Response,
 		}, nil
 	}
 
-	// Gather system message and convert to Grok 4.1 format
+	// Gather system message and convert to Grok 4.3 format.
 	systemMsg := defaultSystemPrompt
 	var messages []map[string]interface{}
 
@@ -173,14 +178,13 @@ func callGrok4ApiGo(prevMsgs []ChatMessage, newMsg, apiKey string) (*R1Response,
 		"content": newMsg,
 	})
 
-	// Call Grok 4.1 API
+	// Call Grok 4.3 API.
 	aiResp, inputTokens, outputTokens, err := callGrok4API(messages, apiKey, 4096, "")
 	if err != nil {
 		return nil, err
 	}
 
-	// Pricing snapshot (February 2026): $0.20/M input tokens, $0.50/M output tokens.
-	cost := (float64(inputTokens) / 1_000_000.0 * 0.20) + (float64(outputTokens) / 1_000_000.0 * 0.50)
+	cost := calculateGrokTextCost(inputTokens, outputTokens)
 
 	return &R1Response{
 		AIResponse: aiResp,
@@ -196,7 +200,7 @@ func callGrok4ApiGo(prevMsgs []ChatMessage, newMsg, apiKey string) (*R1Response,
 // callGrok4API makes the actual HTTP request to xAI API with streaming support
 func callGrok4API(messages []map[string]interface{}, apiKey string, maxTokens int, reasoningEffort string) (string, int, int, error) {
 	reqBody := map[string]interface{}{
-		"model":       "grok-4-1-fast-reasoning",
+		"model":       grokTextModelID,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"stream":      true,
@@ -212,7 +216,7 @@ func callGrok4API(messages []map[string]interface{}, apiKey string, maxTokens in
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	fmt.Println("[DEBUG] Calling Grok 4.1 API with streaming...")
+	fmt.Printf("[DEBUG] Calling Grok API with %s streaming...\n", grokTextModelID)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -286,18 +290,18 @@ func callGrok4API(messages []map[string]interface{}, apiKey string, maxTokens in
 		fullResponse = "<think>" + reasoningBuilder.String() + "</think>" + fullResponse
 	}
 
-	fmt.Printf("[DEBUG] Grok 4.1 response: %d input tokens, %d output tokens\n", inputTokens, outputTokens)
+	fmt.Printf("[DEBUG] %s response: %d input tokens, %d output tokens\n", grokTextModelID, inputTokens, outputTokens)
 
 	return fullResponse, inputTokens, outputTokens, nil
 }
 
-// callGrok4ChatStreaming streams Grok 4.1 response via SSE to the writer (for chat)
+// callGrok4ChatStreaming streams Grok 4.3 response via SSE to the writer (for chat).
 func callGrok4ChatStreaming(w http.ResponseWriter, prevMsgs []ChatMessage, newMsg, apiKey string) error {
 	if apiKey == "" {
 		return fmt.Errorf("no xAI API key provided")
 	}
 
-	// Gather system message and convert to Grok 4.1 format
+	// Gather system message and convert to Grok 4.3 format.
 	systemMsg := defaultSystemPrompt
 	var messages []map[string]interface{}
 
@@ -332,14 +336,14 @@ func callGrok4ChatStreaming(w http.ResponseWriter, prevMsgs []ChatMessage, newMs
 		"content": newMsg,
 	})
 
-	// Call streaming Grok 4.1 API
+	// Call streaming Grok 4.3 API.
 	return callGrok4APIStreaming(w, messages, apiKey, 4096, "")
 }
 
-// callGrok4APIStreaming streams Grok 4.1 responses via SSE directly to the HTTP response writer
+// callGrok4APIStreaming streams Grok 4.3 responses via SSE directly to the HTTP response writer.
 func callGrok4APIStreaming(w http.ResponseWriter, messages []map[string]interface{}, apiKey string, maxTokens int, reasoningEffort string) error {
 	reqBody := map[string]interface{}{
-		"model":       "grok-4-1-fast-reasoning",
+		"model":       grokTextModelID,
 		"max_tokens":  maxTokens,
 		"messages":    messages,
 		"stream":      true,
@@ -355,7 +359,7 @@ func callGrok4APIStreaming(w http.ResponseWriter, messages []map[string]interfac
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	fmt.Println("[DEBUG] Calling Grok 4.1 API with streaming (SSE)...")
+	fmt.Printf("[DEBUG] Calling Grok API with %s streaming (SSE)...\n", grokTextModelID)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -557,7 +561,7 @@ func callGrok4APIStreaming(w http.ResponseWriter, messages []map[string]interfac
 
 	// Always send a terminal done event so the client can finalize post-processing.
 	// If xAI omitted usage in stream chunks, these fields will be zero.
-	cost := (float64(inputTokens) / 1_000_000.0 * 0.20) + (float64(outputTokens) / 1_000_000.0 * 0.50)
+	cost := calculateGrokTextCost(inputTokens, outputTokens)
 	doneData := map[string]interface{}{
 		"done": true,
 		"tokenUsage": map[string]int{
@@ -573,6 +577,12 @@ func callGrok4APIStreaming(w http.ResponseWriter, messages []map[string]interfac
 		f.Flush()
 	}
 
-	fmt.Printf("[Grok 4.1] Stream complete: %d input tokens, %d output tokens\n", inputTokens, outputTokens)
+	fmt.Printf("[%s] Stream complete: %d input tokens, %d output tokens\n", grokTextModelID, inputTokens, outputTokens)
 	return nil
+}
+
+func calculateGrokTextCost(inputTokens, outputTokens int) float64 {
+	// xAI Grok 4.3 public API pricing snapshot (May 2026).
+	return (float64(inputTokens) / 1_000_000.0 * grokTextInputCostPerM) +
+		(float64(outputTokens) / 1_000_000.0 * grokTextOutputCostPerM)
 }

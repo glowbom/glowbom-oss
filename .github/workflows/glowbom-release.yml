@@ -1,9 +1,9 @@
-name: Release glowby
+name: Release Glowbom OSS CLI
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -20,13 +20,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.24"
 
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
+          CGO_ENABLED: "0"
         run: |
           if [ -d oss/cli ]; then
             CLI_DIR="oss/cli"
@@ -41,10 +41,10 @@ jobs:
           cd "${CLI_DIR}"
           go build \
             -ldflags "-s -w -X main.version=${TAG} -X main.commit=${SHA} -X main.date=${DATE}" \
-            -o "glowby-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
+            -o "glowbom-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
             .
 
-      - name: Create archive
+      - name: Create current and compatibility archives
         run: |
           if [ -d oss/cli ]; then
             CLI_DIR="oss/cli"
@@ -52,22 +52,30 @@ jobs:
             CLI_DIR="cli"
           fi
           cd "${CLI_DIR}"
-          BIN="glowby-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BIN="glowbom-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            mv "${BIN}.exe" glowby.exe
-            zip "${BIN}.zip" glowby.exe
+            cp "${BIN}.exe" glowbom.exe
+            zip "${BIN}.zip" glowbom.exe
+            cp "${BIN}.exe" glowby.exe
+            zip "glowby-${{ matrix.goos }}-${{ matrix.goarch }}.zip" glowby.exe
           else
-            mv "${BIN}" glowby
-            tar czf "${BIN}.tar.gz" glowby
+            cp "${BIN}" glowbom
+            tar czf "${BIN}.tar.gz" glowbom
+            cp "${BIN}" glowby
+            tar czf "glowby-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" glowby
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: glowby-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: glowbom-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
+            oss/cli/glowbom-*.tar.gz
+            oss/cli/glowbom-*.zip
             oss/cli/glowby-*.tar.gz
             oss/cli/glowby-*.zip
+            cli/glowbom-*.tar.gz
+            cli/glowbom-*.zip
             cli/glowby-*.tar.gz
             cli/glowby-*.zip
 

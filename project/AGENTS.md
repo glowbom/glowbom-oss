@@ -14,7 +14,7 @@ All destination projects in `project/` must look and function exactly like the p
 
 ### App Metadata
 
-- Display Name: `Glowby`
+- Display Name: `Glowbom`
 - Bundle ID: `app.glowbom.glowby`
 - Version: `1.0`
 - Build Number: `1`
@@ -130,7 +130,7 @@ Not all file types will be present every time. The user may attach just one file
      ```json
      {
        "assets": [
-         { "filename": "image-001.png", "prompt": "description from the HTML", "sourceService": "Glowby Images" }
+         { "filename": "image-001.png", "prompt": "description from the HTML", "sourceService": "Glowbom Images" }
        ],
        "exportedAt": "<current ISO timestamp>",
        "version": "1.0"

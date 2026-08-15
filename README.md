@@ -1,26 +1,26 @@
-# Glowby OSS
+# Glowbom OSS
 
-> We just launched Glowby OSS! [See the announcement](https://x.com/jacobilin/status/2035059308463833292)
+> Glowbom OSS was previously called Glowby OSS. Existing projects and transition commands remain supported.
 
 **Build anything locally.**
 
-Glowby helps you build production-ready software with coding agents. It is an open source coding agent workflow for real projects. It is built primarily for Glowbom projects, but the workflow can also work with other project structures.
+Glowbom OSS helps you build production-ready software with coding agents. It is an open source coding agent workflow for real projects. It is built primarily for Glowbom projects, but the workflow can also work with other project structures.
 
 ## What It Does
 
 - Make software projects and prototypes production-ready with coding agents
-- Run on local projects with ChatGPT login, API keys, or OpenCode config
+- Use the providers and models already configured in OpenCode
 
 ## Vision
 
-We believe that you should own your code and data. Every line of code Glowby generates lives on your machine, in standard project files you can open with any editor. No vendor lock-in.
+We believe that you should own your code and data. Every line of code Glowbom OSS generates lives on your machine, in standard project files you can open with any editor. No vendor lock-in.
 
 ## Install
 
-Install the Glowby CLI:
+Install the Glowbom CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/glowbom/glowby/main/scripts/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/glowbom/glowbom-oss/main/scripts/install.sh | sudo sh
 ```
 
 For Windows, we recommend using WSL and running the install command inside Ubuntu.
@@ -28,68 +28,75 @@ For Windows, we recommend using WSL and running the install command inside Ubunt
 Then clone the repo and enter it:
 
 ```bash
-git clone https://github.com/glowbom/glowby.git
-cd glowby
+git clone https://github.com/glowbom/glowbom-oss.git
+cd glowbom-oss
 ```
 
 ## Quickstart
 
-Glowby needs these tools available on your `PATH`:
+Glowbom OSS needs these tools available on your `PATH`:
 
 - [Go](https://go.dev/)
 - [Bun](https://bun.sh/)
 - [OpenCode](https://opencode.ai/)
 
-Run the built-in environment check and launch Glowby:
+Run the built-in environment check and launch Glowbom OSS:
 
 ```bash
-glowby doctor
-glowby code
+glowbom doctor
+glowbom start
 ```
 
-Run those commands from the Glowby repo root, where `backend/` and `web/` live side by side.
+Glowbom OSS uses your local OpenCode setup for provider access. We recommend signing in to ChatGPT through OpenCode:
+
+```bash
+opencode auth login
+```
+
+Choose OpenAI, then choose ChatGPT Plus/Pro and finish the browser login. You can use the same OpenCode command to configure another provider instead.
+
+Run those commands from the Glowbom OSS repo root, where `backend/` and `web/` live side by side.
 
 ## Security Defaults
 
-`glowby code` now hardens the local stack by default:
+`glowbom start` hardens the local stack by default:
 
-- Glowby services bind to loopback (`127.0.0.1`) instead of all interfaces
+- Glowbom OSS services bind to loopback (`127.0.0.1`) instead of all interfaces
 - the backend API requires a per-run bearer token
 - the OpenCode bridge runs with `OPENCODE_SERVER_PASSWORD`
 
-To view the generated credentials for the current session, start Glowby with `glowby code --show-local-auth`.
+To view the generated credentials for the current session, start Glowbom OSS with `glowbom start --show-local-auth`.
 
 If you launch the stack manually, set equivalent env vars yourself:
 
 ```bash
-export GLOWBY_BIND_HOST=127.0.0.1
-export GLOWBY_SERVER_TOKEN="$(openssl rand -hex 32)"
+export GLOWBOM_BIND_HOST=127.0.0.1
+export GLOWBOM_SERVER_TOKEN="$(openssl rand -hex 32)"
 export OPENCODE_SERVER_PASSWORD="$(openssl rand -hex 32)"
 ```
 
 Then run the backend with those env vars, and start the web app with:
 
 ```bash
-export VITE_GLOWBY_SERVER_TOKEN="$GLOWBY_SERVER_TOKEN"
+export VITE_GLOWBOM_SERVER_TOKEN="$GLOWBOM_SERVER_TOKEN"
 ```
 
-## Start Using Glowby OSS
+The previous `GLOWBY_*` variables remain accepted during the rename transition.
+
+## Start Using Glowbom OSS
 
 1. Open `http://localhost:4572`
 2. Load a local project
-3. Choose how you want to run the agent:
-   - ChatGPT login
-   - API keys
-   - OpenCode config
+3. Choose the model from your OpenCode setup, or keep its configured default
 4. Start a refine run
 
 ## Cost
 
-You can build with Glowby for free. Run local AI models on your own computer or connect to free cloud models. If you want access to premium models, you can connect a paid account or your own API keys, but you do not need to.
+You can build with Glowbom OSS for free. OpenCode can use local models on your computer, free cloud models, or a paid provider account that you configure directly in OpenCode.
 
 ## Requirements And Setup
 
-If `glowby doctor` reports missing tools, install them first and confirm they are available on your `PATH`:
+If `glowbom doctor` reports missing tools, install them first and confirm they are available on your `PATH`:
 
 ```bash
 go version
@@ -161,6 +168,9 @@ If you only need some targets, remove the platform folders you do not want:
 ## Project Structure
 
 - `backend/` - Go backend
+- `cli/` - Glowbom command-line tool
+- `docs/` - documentation website
 - `project/` - bundled default Glowbom project template
+- `scripts/` - installation scripts
 - `web/` - React + Vite web app
-- `legacy/` - older Glowby code kept for reference
+- `legacy/` - older Glowby code kept for historical reference

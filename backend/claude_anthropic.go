@@ -13,10 +13,63 @@ import (
 )
 
 const claudeSonnetDefaultModel = "claude-sonnet-4-6"
-const claudeOpusDefaultModel = "claude-opus-4-6"
+const claudeOpusDefaultModel = "claude-opus-4-7"
 
 func isClaudeOpusModel(modelID string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "claude-opus-")
+}
+
+func supportsClaudeAdaptiveThinking(modelID string) bool {
+	normalizedModelID := strings.ToLower(strings.TrimSpace(modelID))
+	return strings.HasPrefix(normalizedModelID, "claude-opus-4-") || strings.HasPrefix(normalizedModelID, "claude-sonnet-4-")
+}
+
+func buildClaudeThinkingConfig(modelID string, thinkingBudget int) map[string]interface{} {
+	if supportsClaudeAdaptiveThinking(modelID) {
+		return map[string]interface{}{
+			"type":    "adaptive",
+			"display": "summarized",
+		}
+	}
+
+	return map[string]interface{}{
+		"type":          "enabled",
+		"budget_tokens": thinkingBudget,
+	}
+}
+
+func buildClaudeOutputConfig(modelID string) map[string]interface{} {
+	if supportsClaudeAdaptiveThinking(modelID) {
+		return map[string]interface{}{
+			"effort": "high",
+		}
+	}
+
+	return nil
+}
+
+func buildClaudeRequestBody(messages []map[string]interface{}, systemPrompt, modelID string, maxTokens int, thinkingBudget int, stream bool, tools []map[string]interface{}) map[string]interface{} {
+	reqBody := map[string]interface{}{
+		"model":      modelID,
+		"max_tokens": maxTokens,
+		"messages":   messages,
+		"system":     systemPrompt,
+		"thinking":   buildClaudeThinkingConfig(modelID, thinkingBudget),
+	}
+
+	if outputConfig := buildClaudeOutputConfig(modelID); outputConfig != nil {
+		reqBody["output_config"] = outputConfig
+	}
+
+	if stream {
+		reqBody["stream"] = true
+	}
+
+	if len(tools) > 0 {
+		reqBody["tools"] = tools
+	}
+
+	return reqBody
 }
 
 func claudeModelTokenRates(modelID string) (inputCostPer1M float64, outputCostPer1M float64) {
@@ -82,7 +135,7 @@ func callClaudeDrawToCodeApiFullWithModel(imageBase64, userPrompt, template, ima
 
 	// 5) Calculate cost based on model
 	// Sonnet 4.6: Input $3/1M, Output $15/1M
-	// Opus 4.6: Input $5/1M, Output $25/1M
+	// Opus 4.7: Input $5/1M, Output $25/1M
 	inputCostPer1M, outputCostPer1M := claudeModelTokenRates(modelID)
 	cost := (float64(inputTokens) / 1_000_000.0 * inputCostPer1M) + (float64(outputTokens) / 1_000_000.0 * outputCostPer1M)
 
@@ -211,16 +264,7 @@ func callClaudeAPIWithThinkingBudgetAndModel(messages []map[string]interface{}, 
 		thinkingBudget = maxTokens / 4 // Use quarter for thinking if max_tokens is small
 	}
 
-	reqBody := map[string]interface{}{
-		"model":      modelID,
-		"max_tokens": maxTokens,
-		"messages":   messages,
-		"system":     systemPrompt,
-		"thinking": map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": thinkingBudget,
-		},
-	}
+	reqBody := buildClaudeRequestBody(messages, systemPrompt, modelID, maxTokens, thinkingBudget, false, nil)
 
 	jsonBytes, _ := json.Marshal(reqBody)
 	fmt.Printf("[DEBUG] Claude request body: %s\n", string(jsonBytes))
@@ -377,22 +421,7 @@ func callClaudeAPIStreamingWithModelAndTools(w http.ResponseWriter, messages []m
 		thinkingBudget = maxTokens / 2 // Use half for thinking if max_tokens is small
 	}
 
-	reqBody := map[string]interface{}{
-		"model":      modelID,
-		"max_tokens": maxTokens,
-		"messages":   messages,
-		"system":     systemPrompt,
-		"stream":     true,
-		"thinking": map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": thinkingBudget,
-		},
-	}
-
-	// Add tools if provided
-	if len(tools) > 0 {
-		reqBody["tools"] = tools
-	}
+	reqBody := buildClaudeRequestBody(messages, systemPrompt, modelID, maxTokens, thinkingBudget, true, tools)
 
 	jsonBytes, _ := json.Marshal(reqBody)
 	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(jsonBytes))
@@ -636,7 +665,7 @@ func callClaudeAPIStreamingWithModelAndTools(w http.ResponseWriter, messages []m
 
 						// Calculate cost based on model
 						// Sonnet 4.6: Input $3/1M, Output $15/1M
-						// Opus 4.6: Input $5/1M, Output $25/1M
+						// Opus 4.7: Input $5/1M, Output $25/1M
 						inputCostPer1M, outputCostPer1M := claudeModelTokenRates(modelID)
 						cost := (float64(inputTokens) / 1_000_000.0 * inputCostPer1M) + (float64(outputTokens) / 1_000_000.0 * outputCostPer1M)
 

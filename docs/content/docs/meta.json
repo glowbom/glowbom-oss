@@ -1,5 +1,5 @@
 {
   "title": "Glowbom Docs",
   "root": true,
-  "pages": ["index", "glowbom", "quickstart", "glowby-oss", "desktop"]
+  "pages": ["index", "glowbom", "quickstart", "glowbom-oss", "desktop"]
 }

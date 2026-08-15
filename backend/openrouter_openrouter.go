@@ -652,21 +652,21 @@ func openRouterAttachmentDataURI(attachmentBase64, attachmentMime string) string
 
 func buildOpenRouterDrawToCodeMessages(imageBase64, userPrompt, template, imageSource, openRouterModel, apiKey string) []map[string]interface{} {
 	effectiveImageSource := imageSource
-	if !strings.EqualFold(strings.TrimSpace(effectiveImageSource), "Glowby Images") {
-		effectiveImageSource = "Glowby Images"
-		fmt.Printf("[OpenRouter DEBUG] forcing imageSource to Glowby Images for safe placeholder output (was=%q)\n", imageSource)
+	if !isGlowbomImagesSource(effectiveImageSource) {
+		effectiveImageSource = "Glowbom Images"
+		fmt.Printf("[OpenRouter DEBUG] forcing imageSource to Glowbom Images for safe placeholder output (was=%q)\n", imageSource)
 	}
 	resolvedModel := normalizeOpenRouterModelID(openRouterModel)
 
 	systemPrompt := getSystemPrompt(template, effectiveImageSource)
 	systemPrompt += " Replace @tailwind placeholders with the Tailwind CSS CDN link to load the real framework."
-	systemPrompt += " Glowby Images mode is strict: NEVER embed image bytes in output. NEVER output data: URIs, base64 blobs, blob: URLs, object URLs, or inline binary arrays."
+	systemPrompt += " Glowbom Images mode is strict: NEVER embed image bytes in output. NEVER output data: URIs, base64 blobs, blob: URLs, object URLs, or inline binary arrays."
 	systemPrompt += " Use glowbyimage:<prompt> placeholders ONLY. Every <img> must start with src='about:blank', then JavaScript assigns .src from a glowbyimage variable."
 	systemPrompt += " If you are uncertain about an image, create another descriptive glowbyimage:<prompt> placeholder instead of embedding bytes."
 	systemPrompt += " Return a COMPLETE, valid HTML document from <!DOCTYPE html> through </html>. Never truncate output."
 	systemPrompt += " Do NOT minify. Format output for humans with consistent indentation and spacing in CSS/JS (example: transition: all 0.3s ease; and color stops like #1a1a2e 0%)."
 	systemPrompt += " Never put JavaScript code on the same line as // comments. If comments are used, they must be standalone lines."
-	systemPrompt += " Glowby image wiring contract: in one plain <script> block, first declare const image variables (each starting with glowbyimage:), then assign each to its matching img id via document.getElementById('...').src = ...."
+	systemPrompt += " Glowbom image wiring contract: in one plain <script> block, first declare const image variables (each starting with glowbyimage:), then assign each to its matching img id via document.getElementById('...').src = ...."
 	systemPrompt += " The image wiring script must contain ONLY: const image declarations and document.getElementById(...).src assignments. No other logic, no function definitions, no event handlers, no extra words."
 	systemPrompt += " Put interactive JavaScript in a separate second <script> block so image assignment always works even if other logic has issues."
 	systemPrompt += " Do not put declarations or assignments on the same line as comments. Keep one statement per line."

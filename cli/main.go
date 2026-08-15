@@ -11,19 +11,22 @@ var (
 	date    = "unknown"
 )
 
-const usage = `glowby - terminal-first local AI coding agent
+const usage = `glowbom - terminal-first local AI coding agent for Glowbom OSS
 
 Usage:
-  glowby code [project-path] [--show-local-auth]
-                                Start Glowby from this checkout and open the browser
-  glowby doctor                 Check environment dependencies
-  glowby version                Print version info
-  glowby help                   Show this help
+  glowbom start [project-path] [--show-local-auth]
+                                Start Glowbom OSS from this checkout and open the browser
+  glowbom doctor                Check environment dependencies
+  glowbom version               Print version info
+  glowbom help                  Show this help
 
 Examples:
-  glowby code                   Start Glowby from the current checkout
-  glowby code --show-local-auth Start Glowby and print local dev auth credentials
-  glowby code /path/to/project  Start Glowby and print a project path hint
+  glowbom start                   Start Glowbom OSS from the current checkout
+  glowbom start --show-local-auth Start Glowbom OSS and print local dev auth credentials
+  glowbom start /path/to/project  Start Glowbom OSS and print a project path hint
+
+Compatibility:
+  glowbom code [project-path]     Deprecated alias for glowbom start
 `
 
 func main() {
@@ -38,8 +41,11 @@ func run(args []string) int {
 	}
 
 	switch args[0] {
+	case "start":
+		return runStart(args[1:])
 	case "code":
-		return runCode(args[1:])
+		fmt.Fprintln(os.Stderr, "warning: `glowbom code` is deprecated; use `glowbom start`")
+		return runStart(args[1:])
 	case "doctor":
 		return runDoctor()
 	case "version":

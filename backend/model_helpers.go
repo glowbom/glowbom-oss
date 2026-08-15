@@ -2,7 +2,7 @@ package main
 
 import "strings"
 
-const defaultOpenAIModelID = "gpt-5.4"
+const defaultOpenAIModelID = "gpt-5.5"
 
 type openAITextPricing struct {
 	InputPerMillion  float64
@@ -11,7 +11,7 @@ type openAITextPricing struct {
 
 func isOpenAIChatAlias(modelID string) bool {
 	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.4":
+	case "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5":
 		return true
 	default:
 		return false
@@ -24,7 +24,7 @@ func normalizeOpenAIModelID(modelID string) string {
 		return defaultOpenAIModelID
 	}
 	switch strings.ToLower(trimmed) {
-	case "gpt-5", "gpt-5.1":
+	case "gpt-5", "gpt-5.1", "gpt-5.4":
 		return defaultOpenAIModelID
 	}
 	// ChatGPT Codex rejects spark for many accounts; transparently route to gpt-5.3-codex.
@@ -36,6 +36,8 @@ func normalizeOpenAIModelID(modelID string) string {
 
 func openAITextPricingForModel(modelID string) (openAITextPricing, bool) {
 	switch strings.ToLower(strings.TrimSpace(normalizeOpenAIModelID(modelID))) {
+	case "gpt-5.5":
+		return openAITextPricing{InputPerMillion: 5.00, OutputPerMillion: 30.00}, true
 	case "gpt-5.4":
 		return openAITextPricing{InputPerMillion: 2.50, OutputPerMillion: 20.00}, true
 	case "gpt-5.4-pro":
@@ -143,19 +145,17 @@ func normalizeOpenCodeZenModelID(modelID string) string {
 func normalizeXAIModelID(modelID string) string {
 	trimmed := strings.TrimSpace(modelID)
 	if trimmed == "" {
-		// OpenCode currently exposes non-reasoning variants for 4.1 fast models.
-		return "grok-4-1-fast-non-reasoning"
+		return grokTextModelID
 	}
 
 	switch strings.ToLower(trimmed) {
 	case "grok", "xai", "grok-4", "grok-4.1", "grok-4-1", "grok-4.1-fast", "grok-4-1-fast",
 		"grok-4.1-fast-reasoning", "grok-4-1-fast-reasoning",
-		"grok-4.1-reasoning", "grok-4-1-reasoning":
-		return "grok-4-1-fast-non-reasoning"
-	case "grok-4-fast", "grok-4-fast-reasoning":
-		return "grok-4-fast-non-reasoning"
-	case "grok-4.1-fast-non-reasoning", "grok-4-1-fast-non-reasoning", "grok-4-fast-non-reasoning":
-		return strings.ToLower(trimmed)
+		"grok-4.1-reasoning", "grok-4-1-reasoning",
+		"grok-4.1-fast-non-reasoning", "grok-4-1-fast-non-reasoning",
+		"grok-4-fast", "grok-4-fast-reasoning", "grok-4-fast-non-reasoning",
+		"grok-4.3", "grok-4-3", "grok-4.3-latest", "grok-4-3-latest", "grok-latest":
+		return grokTextModelID
 	default:
 		// Allow full/forward-compatible model ids.
 		return trimmed

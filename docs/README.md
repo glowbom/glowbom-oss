@@ -1,11 +1,11 @@
-# Glowby OSS
+# Glowbom OSS
 
-Glowby helps you build production-ready software with coding agents. It is an open source coding agent workflow for real projects. It is built primarily for Glowbom projects, but the workflow can also work with other project structures.
+Glowbom OSS helps you build production-ready software with coding agents. It is an open source coding agent workflow for real projects. It is built primarily for Glowbom projects, but the workflow can also work with other project structures.
 
 ## What It Does
 
 - Make software projects and prototypes production-ready with coding agents
-- Run on local projects with ChatGPT login, API keys, or OpenCode config
+- Use the providers and models already configured in OpenCode
 
 ## Requirements
 
@@ -35,15 +35,14 @@ bun run dev
 
 The web app runs on `http://localhost:4572`.
 
-### 3. Start using Glowby OSS
+### 3. Start using Glowbom OSS
 
 1. Open `http://localhost:4572`
 2. Load a local project
-3. Choose how you want to run the agent:
-   - ChatGPT login
-   - API keys
-   - OpenCode config
+3. Choose the model from your OpenCode setup, or keep its configured default
 4. Start a refine run
+
+Glowbom OSS uses your local OpenCode setup for provider access. We recommend running `opencode auth login`, choosing OpenAI, and signing in with ChatGPT Plus/Pro through OpenCode.
 
 ## Using the Bundled Default Project
 
@@ -71,4 +70,4 @@ If you only need some targets, remove the platform folders you do not want:
 - `backend/` - Go backend
 - `project/` - bundled default Glowbom project template
 - `web/` - React + Vite web app
-- `legacy/` - older Glowby code kept for reference
+- `legacy/` - older Glowby code kept for historical reference

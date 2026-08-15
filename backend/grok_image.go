@@ -14,20 +14,22 @@ import (
 )
 
 const (
-	xAIImageGenerationURL   = "https://api.x.ai/v1/images/generations"
-	xAIImageEditURL         = "https://api.x.ai/v1/images/edits"
-	xAIImageGenerationModel = "grok-imagine-image-pro"
-	xAIImageEditModel       = "grok-imagine-image"
-	xAIImageEditResolution  = "1k"
+	xAIImageGenerationURL  = "https://api.x.ai/v1/images/generations"
+	xAIImageEditURL        = "https://api.x.ai/v1/images/edits"
+	xAIImageModel          = "grok-imagine-image-quality"
+	xAIImageResolution     = "1k"
+	xAIImageOutputFilename = "grok-imagine-image-quality.jpg"
+	xAIImageSourceLabel    = "Glowbom Images (Grok Imagine Image Quality)"
 )
 
 // callGrokImageGeneration calls xAI's Grok image generation API.
 // Returns a base64 data URI on success.
 func callGrokImageGeneration(prompt, apiKey, aspectRatio string) (string, error) {
 	reqBody := map[string]interface{}{
-		"model":        xAIImageGenerationModel,
+		"model":        xAIImageModel,
 		"prompt":       prompt,
 		"n":            1,
+		"resolution":   xAIImageResolution,
 		"image_format": "url",
 	}
 
@@ -35,7 +37,7 @@ func callGrokImageGeneration(prompt, apiKey, aspectRatio string) (string, error)
 		reqBody["aspect_ratio"] = trimmedAspectRatio
 	}
 
-	return callXAIImageAPI(xAIImageGenerationURL, xAIImageGenerationModel, reqBody, apiKey, false, aspectRatio)
+	return callXAIImageAPI(xAIImageGenerationURL, xAIImageModel, reqBody, apiKey, false, aspectRatio)
 }
 
 // callGrokImageGenerationWithReference sends a single reference image to Grok image edits API.
@@ -48,10 +50,10 @@ func callGrokImageGenerationWithReference(prompt, referenceImageBase64, apiKey, 
 	}
 
 	reqBody := map[string]interface{}{
-		"model":      xAIImageEditModel,
+		"model":      xAIImageModel,
 		"prompt":     prompt,
 		"n":          1,
-		"resolution": xAIImageEditResolution,
+		"resolution": xAIImageResolution,
 		"image": map[string]interface{}{
 			"url": referenceImageURL,
 		},
@@ -63,7 +65,7 @@ func callGrokImageGenerationWithReference(prompt, referenceImageBase64, apiKey, 
 		reqBody["aspect_ratio"] = "auto"
 	}
 
-	return callXAIImageAPI(xAIImageEditURL, xAIImageEditModel, reqBody, apiKey, true, aspectRatio)
+	return callXAIImageAPI(xAIImageEditURL, xAIImageModel, reqBody, apiKey, true, aspectRatio)
 }
 
 func callXAIImageAPI(endpointURL, model string, reqBody map[string]interface{}, apiKey string, hasReference bool, aspectRatio string) (string, error) {

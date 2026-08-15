@@ -35,7 +35,7 @@ type ChatWithAIRequest struct {
 	OpenAIKey         string        `json:"openaiKey,omitempty"`
 	OpenAIAuthMode    string        `json:"openaiAuthMode,omitempty"`  // "api-key" or "codex-jwt"
 	OpenAIAccountID   string        `json:"openaiAccountID,omitempty"` // chatgpt_account_id for JWT mode
-	OpenAIModel       string        `json:"openaiModel,omitempty"`     // concrete OpenAI model id (e.g. gpt-5.4)
+	OpenAIModel       string        `json:"openaiModel,omitempty"`     // concrete OpenAI model id (e.g. gpt-5.5)
 	XaiKey            string        `json:"xaiKey,omitempty"`
 	GeminiKey         string        `json:"geminiKey,omitempty"`
 	GeminiModel       string        `json:"geminiModel,omitempty"` // concrete Gemini model id (e.g. gemini-3.1-pro-preview)

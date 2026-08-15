@@ -84,9 +84,9 @@ const STATIC_MODEL_CATALOG: Record<ProviderID, ModelCatalogEntry[]> = {
   xai: [
     {
       providerId: 'xai',
-      id: 'grok-4-1-fast-reasoning',
-      label: 'Grok Fast',
-      description: 'xAI fast reasoning model for agentic tasks.',
+      id: 'grok-4.3',
+      label: 'Grok 4.3',
+      description: 'xAI flagship reasoning model for agentic tasks.',
     },
   ],
   fireworks: [
@@ -158,9 +158,9 @@ const STATIC_MODEL_CATALOG: Record<ProviderID, ModelCatalogEntry[]> = {
   openai: [
     {
       providerId: 'openai',
-      id: 'gpt-5.4',
-      label: 'GPT-5.4',
-      description: 'OpenAI GPT-5.4.',
+      id: 'gpt-5.5',
+      label: 'GPT-5.5',
+      description: 'OpenAI GPT-5.5.',
     },
     {
       providerId: 'openai',
@@ -202,9 +202,9 @@ const STATIC_MODEL_CATALOG: Record<ProviderID, ModelCatalogEntry[]> = {
     },
     {
       providerId: 'anthropic',
-      id: 'claude-opus-4-6',
-      label: 'Claude Opus 4.6',
-      description: 'Anthropic Opus 4.6.',
+      id: 'claude-opus-4-7',
+      label: 'Claude Opus 4.7',
+      description: 'Anthropic Opus 4.7.',
     },
   ],
   google: [
@@ -274,6 +274,34 @@ export function encodeModelOptionValue(providerId: ProviderID, modelId: string):
   return `${providerId}${OPTION_SEPARATOR}${encodeURIComponent(modelId)}`;
 }
 
+function normalizeModelIdForProvider(providerId: ProviderID, modelId: string): string {
+  if (providerId !== 'xai') {
+    return modelId;
+  }
+
+  switch (modelId.trim().toLowerCase()) {
+    case 'grok':
+    case 'xai':
+    case 'grok-4':
+    case 'grok-4.1':
+    case 'grok-4-1':
+    case 'grok-4.1-fast':
+    case 'grok-4-1-fast':
+    case 'grok-4.1-fast-reasoning':
+    case 'grok-4-1-fast-reasoning':
+    case 'grok-4.1-fast-non-reasoning':
+    case 'grok-4-1-fast-non-reasoning':
+    case 'grok-4.3':
+    case 'grok-4-3':
+    case 'grok-4.3-latest':
+    case 'grok-4-3-latest':
+    case 'grok-latest':
+      return 'grok-4.3';
+    default:
+      return modelId;
+  }
+}
+
 export function decodeModelOptionValue(value: string): { providerId: ProviderID; modelId: string } | null {
   const separatorIndex = value.indexOf(OPTION_SEPARATOR);
   if (separatorIndex <= 0) {
@@ -287,27 +315,29 @@ export function decodeModelOptionValue(value: string): { providerId: ProviderID;
   }
 
   try {
+    const modelId = decodeURIComponent(encodedModel);
     return {
       providerId,
-      modelId: decodeURIComponent(encodedModel),
+      modelId: normalizeModelIdForProvider(providerId, modelId),
     };
   } catch {
     return {
       providerId,
-      modelId: encodedModel,
+      modelId: normalizeModelIdForProvider(providerId, encodedModel),
     };
   }
 }
 
 export function resolveRefineModel(providerId: ProviderID, modelId: string): ResolvedRefineModel {
+  const normalizedModelId = normalizeModelIdForProvider(providerId, modelId);
   const group = modelCatalogGroups().find((item) => item.provider.id === providerId);
-  const entry = group?.models.find((model) => model.id === modelId);
-  const label = entry ? `${group?.provider.label}: ${entry.label}` : `${providerId}/${modelId}`;
+  const entry = group?.models.find((model) => model.id === normalizedModelId);
+  const label = entry ? `${group?.provider.label}: ${entry.label}` : `${providerId}/${normalizedModelId}`;
 
   return {
     providerId,
-    modelId,
-    value: `${providerId}/${modelId}`,
+    modelId: normalizedModelId,
+    value: `${providerId}/${normalizedModelId}`,
     label,
   };
 }
