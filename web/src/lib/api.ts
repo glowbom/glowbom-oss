@@ -12,6 +12,7 @@ import type {
   OpenCodeAuthStatus,
   OpenCodeHealthResponse,
   OpenCodeInstructionFilesPickResponse,
+  OpenCodeMediaApprovalRespondRequest,
   OpenCodeProjectHistoryResponse,
   OpenCodeProjectIDEStatusResponse,
   OpenCodePermissionRespondRequest,
@@ -191,6 +192,14 @@ export const openCodeApi = {
 
   async respondToPermission(payload: OpenCodePermissionRespondRequest): Promise<{ ok: boolean }> {
     return requestJson<{ ok: boolean }>(`${API_PREFIX}/opencode/permission/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async respondToMediaApproval(payload: OpenCodeMediaApprovalRespondRequest): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>(`${API_PREFIX}/opencode/media/approval/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

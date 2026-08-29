@@ -9,9 +9,17 @@ import {
 } from './lib/model-catalog';
 import { lineLooksLikeMarkdown, parseConsoleHeading, parseConsoleMarkdown } from './lib/console-render';
 import { ApiError, openCodeApi, toErrorMessage } from './lib/api';
+import {
+  OPENCODE_DEFAULT_MODEL_VALUE,
+  OPENCODE_RECOMMENDED_MODEL_VALUE,
+  findChatGPTRecommendedModel,
+  resolveOpenCodeModelValue,
+} from './lib/opencode-model-recommendation';
 import { useRefineRun } from './hooks/useRefineRun';
 import type {
   AuthProviderID,
+  ImageProviderID,
+  ImageProviderKeyState,
   OpenCodeAvailableProvider,
   OpenAIAuthMode,
   OpenAIModelsResponseModel,
@@ -32,7 +40,6 @@ import type {
 } from './types/opencode';
 
 type CredentialMode = 'auth' | 'api-key' | 'opencode-config';
-const OPENCODE_DEFAULT_MODEL_VALUE = '__opencode_default__';
 const MAX_INSTRUCTION_ATTACHMENT_BYTES = 40 * 1024 * 1024;
 const PROJECT_HISTORY_STORAGE_KEY = 'glowbom_oss_project_history';
 const LEGACY_PROJECT_HISTORY_STORAGE_KEY = 'glowby_oss_project_history';
@@ -94,10 +101,85 @@ function saveProviderKeys(keys: ProviderKeyState): void {
   }
 }
 
+const DEFAULT_IMAGE_PROVIDER_KEYS: ImageProviderKeyState = {
+  openaiImageKey: '',
+  geminiImageKey: '',
+  xaiImageKey: '',
+};
+
+const IMAGE_PROVIDER_KEYS_STORAGE_KEY = 'glowbom_oss_image_provider_keys';
+
+function loadImageProviderKeys(): ImageProviderKeyState {
+  try {
+    const raw = localStorage.getItem(IMAGE_PROVIDER_KEYS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_IMAGE_PROVIDER_KEYS, ...parsed };
+    }
+
+    const providerKeys = loadProviderKeys();
+    const migratedKeys = {
+      openaiImageKey: providerKeys.openaiKey,
+      geminiImageKey: providerKeys.geminiKey,
+      xaiImageKey: providerKeys.xaiKey,
+    };
+    if (Object.values(migratedKeys).some((value) => value.trim())) {
+      saveImageProviderKeys(migratedKeys);
+    }
+    return migratedKeys;
+  } catch {
+    return { ...DEFAULT_IMAGE_PROVIDER_KEYS };
+  }
+}
+
+function saveImageProviderKeys(keys: ImageProviderKeyState): void {
+  try {
+    localStorage.setItem(IMAGE_PROVIDER_KEYS_STORAGE_KEY, JSON.stringify(keys));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 const IMAGE_SOURCE_STORAGE_KEY = 'glowbom_oss_image_source';
 const LEGACY_IMAGE_SOURCE_STORAGE_KEY = 'glowby_oss_image_source';
 const OPENAI_IMAGE_SOURCE = 'Glowbom Images (gpt-image-2)';
+const GEMINI_IMAGE_SOURCE = 'Glowbom Images (Nano Banana 2)';
 const XAI_IMAGE_SOURCE = 'Glowbom Images (Grok Imagine Image Quality)';
+
+const IMAGE_PROVIDERS: Array<{
+  id: ImageProviderID;
+  label: string;
+  source: string;
+  keyField: keyof ImageProviderKeyState;
+  keyLabel: string;
+  keyPlaceholder: string;
+}> = [
+  {
+    id: 'openai',
+    label: 'GPT Image 2',
+    source: OPENAI_IMAGE_SOURCE,
+    keyField: 'openaiImageKey',
+    keyLabel: 'OpenAI image key',
+    keyPlaceholder: 'sk-...',
+  },
+  {
+    id: 'gemini',
+    label: 'Nano Banana 2',
+    source: GEMINI_IMAGE_SOURCE,
+    keyField: 'geminiImageKey',
+    keyLabel: 'Gemini image key',
+    keyPlaceholder: 'Gemini key',
+  },
+  {
+    id: 'xai',
+    label: 'Grok Imagine Image Quality',
+    source: XAI_IMAGE_SOURCE,
+    keyField: 'xaiImageKey',
+    keyLabel: 'xAI image key',
+    keyPlaceholder: 'xAI key',
+  },
+];
+const DEFAULT_IMAGE_PROVIDER = IMAGE_PROVIDERS[0]!;
 
 function loadImageSource(): string {
   try {
@@ -176,7 +258,12 @@ function saveSelectedTargets(ids: string[]): void {
 }
 
 function normalizeImageSource(source: string): string {
-  if (source === 'Glowby Images (gpt-image-1)' || source === 'Glowby Images (gpt-image-1.5)') {
+  if (
+    source === 'Glowbom Images' ||
+    source === 'Glowby Images' ||
+    source === 'Glowby Images (gpt-image-1)' ||
+    source === 'Glowby Images (gpt-image-1.5)'
+  ) {
     return OPENAI_IMAGE_SOURCE;
   }
   if (
@@ -193,13 +280,11 @@ function normalizeImageSource(source: string): string {
   return source;
 }
 
-function validateImageSource(source: string, keys: ProviderKeyState): string {
+function validateImageSource(source: string): string {
   const normalizedSource = normalizeImageSource(source);
-  if (!normalizedSource) return '';
-  if (normalizedSource.includes('gpt-image') && !keys.openaiKey.trim()) return '';
-  if (normalizedSource.includes('Nano Banana') && !keys.geminiKey.trim()) return '';
-  if (normalizedSource.includes('Grok') && !keys.xaiKey.trim()) return '';
-  return normalizedSource;
+  return IMAGE_PROVIDERS.some((provider) => provider.source === normalizedSource)
+    ? normalizedSource
+    : OPENAI_IMAGE_SOURCE;
 }
 
 function suggestBundleID(name: string): string {
@@ -580,7 +665,8 @@ export default function App() {
   const [iconReferenceImage, setIconReferenceImage] = useState<string | null>(null);
 
   const [providerKeys, setProviderKeys] = useState<ProviderKeyState>(loadProviderKeys);
-  const [imageSource, setImageSourceRaw] = useState(() => validateImageSource(loadImageSource(), loadProviderKeys()));
+  const [imageProviderKeys, setImageProviderKeys] = useState<ImageProviderKeyState>(loadImageProviderKeys);
+  const [imageSource, setImageSourceRaw] = useState(() => validateImageSource(loadImageSource()));
   const setImageSource = (value: string | ((prev: string) => string)) => {
     setImageSourceRaw((prev) => {
       const next = normalizeImageSource(typeof value === 'function' ? value(prev) : value);
@@ -603,7 +689,7 @@ export default function App() {
   const [openAIModelsInfo, setOpenAIModelsInfo] = useState<string | null>(null);
   const [openAIModelsWarning, setOpenAIModelsWarning] = useState<string | null>(null);
   const [openCodeConfigProviders, setOpenCodeConfigProviders] = useState<OpenCodeAvailableProvider[]>([]);
-  const [selectedOpenCodeModel, setSelectedOpenCodeModel] = useState(OPENCODE_DEFAULT_MODEL_VALUE);
+  const [selectedOpenCodeModel, setSelectedOpenCodeModel] = useState(OPENCODE_RECOMMENDED_MODEL_VALUE);
   const [isLoadingOpenCodeModels, setIsLoadingOpenCodeModels] = useState(false);
   const [openCodeModelsInfo, setOpenCodeModelsInfo] = useState<string | null>(null);
   const [openCodeModelsWarning, setOpenCodeModelsWarning] = useState<string | null>(null);
@@ -645,6 +731,11 @@ export default function App() {
   const isChatGPTConnected =
     authStatus?.openaiCredentialType === 'oauth' || authStatus?.cachedGlowbomAuthMode === 'codex-jwt';
   const authProviderConnected = authProvider === 'chatgpt' && isChatGPTConnected;
+  const selectedImageProvider =
+    IMAGE_PROVIDERS.find((provider) => provider.source === imageSource) || DEFAULT_IMAGE_PROVIDER;
+  const selectedImageProviderHasKey = Boolean(
+    imageProviderKeys[selectedImageProvider.keyField].trim(),
+  );
 
   const visibleModelGroups = useMemo(() => {
     if (isAuthMode) {
@@ -693,16 +784,20 @@ export default function App() {
   const vscodeAction = useMemo(() => ideActionFor(ideActions, 'vscode'), [ideActions]);
   const selectedProjectPath = projectPath.trim();
   const attachmentCount = instructionAttachments.length;
-  const resolvedOpenCodeModelValue = useMemo(() => {
-    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
-      return '';
-    }
-
-    return selectedOpenCodeModel;
-  }, [selectedOpenCodeModel]);
+  const recommendedOpenCodeModel = useMemo(
+    () => findChatGPTRecommendedModel(authStatus?.openaiCredentialType, openCodeConfigProviders),
+    [authStatus?.openaiCredentialType, openCodeConfigProviders],
+  );
+  const resolvedOpenCodeModelValue = useMemo(
+    () => resolveOpenCodeModelValue(selectedOpenCodeModel, recommendedOpenCodeModel),
+    [recommendedOpenCodeModel, selectedOpenCodeModel],
+  );
   const selectedOpenCodeModelLabel = useMemo(() => {
+    if (selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
+      return recommendedOpenCodeModel?.fullLabel || 'OpenCode default';
+    }
     if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
-      return 'OpenCode configured default';
+      return 'OpenCode default';
     }
 
     for (const provider of openCodeConfigProviders) {
@@ -713,7 +808,10 @@ export default function App() {
     }
 
     return selectedOpenCodeModel;
-  }, [openCodeConfigProviders, selectedOpenCodeModel]);
+  }, [openCodeConfigProviders, recommendedOpenCodeModel, selectedOpenCodeModel]);
+  const recommendedOpenCodeModelOptionLabel = recommendedOpenCodeModel
+    ? `Recommended: ${recommendedOpenCodeModel.modelLabel} via ChatGPT`
+    : 'OpenCode default';
   const systemNeedsAttention = Boolean(
     healthError || authError || health?.healthy === false || authStatus?.serverRunning === false,
   );
@@ -761,6 +859,9 @@ export default function App() {
     selectedOpenCodeModelLabel,
     resolvedSelection,
   ]);
+  const imageProviderStatusSummary = selectedImageProviderHasKey
+    ? selectedImageProvider.label
+    : `${selectedImageProvider.label}: add key`;
   const projectButtonLabel = activeProject?.name || (selectedProjectPath ? compactPathLabel(selectedProjectPath) : 'Project');
   const contextButtonLabel = attachmentCount > 0 ? `Context ${attachmentCount}` : 'Context';
 
@@ -912,7 +1013,13 @@ export default function App() {
     }
 
     container.scrollTop = container.scrollHeight;
-  }, [autoScrollEnabled, runLogs, refine.pendingQuestion, refine.pendingPermission]);
+  }, [
+    autoScrollEnabled,
+    runLogs,
+    refine.pendingQuestion,
+    refine.pendingPermission,
+    refine.pendingMediaApproval,
+  ]);
 
   useEffect(() => {
     setSimpleAnswerText('');
@@ -1000,7 +1107,7 @@ export default function App() {
       setOpenCodeModelsInfo(null);
       setOpenCodeModelsWarning(null);
       setIsLoadingOpenCodeModels(false);
-      setSelectedOpenCodeModel(OPENCODE_DEFAULT_MODEL_VALUE);
+      setSelectedOpenCodeModel(OPENCODE_RECOMMENDED_MODEL_VALUE);
       return;
     }
 
@@ -1075,7 +1182,10 @@ export default function App() {
       return;
     }
 
-    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
+    if (
+      selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE ||
+      selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE
+    ) {
       return;
     }
 
@@ -1165,16 +1275,14 @@ export default function App() {
       saveProviderKeys(next);
       return next;
     });
+  };
 
-    // Clear image source if the key it depends on was removed.
-    if (!value.trim()) {
-      setImageSource((previous) => {
-        if (field === 'openaiKey' && previous.includes('gpt-image')) return '';
-        if (field === 'geminiKey' && previous.includes('Nano Banana')) return '';
-        if (field === 'xaiKey' && previous.includes('Grok')) return '';
-        return previous;
-      });
-    }
+  const updateImageProviderKey = (field: keyof ImageProviderKeyState, value: string) => {
+    setImageProviderKeys((previous) => {
+      const next = { ...previous, [field]: value };
+      saveImageProviderKeys(next);
+      return next;
+    });
   };
 
   const toggleProjectPicker = () => {
@@ -1482,6 +1590,10 @@ export default function App() {
       setIconError('Enter an icon prompt.');
       return;
     }
+    if (!selectedImageProviderHasKey) {
+      setIconError(`Add your ${selectedImageProvider.keyLabel} in Settings before generating an icon.`);
+      return;
+    }
 
     setIsGeneratingIcon(true);
     setIconInfo(null);
@@ -1492,10 +1604,16 @@ export default function App() {
       const result = await openCodeApi.generateIcon({
         path: trimmedPath,
         prompt: trimmedPrompt,
-        imageSource: imageSource || undefined,
-        openaiKey: providerKeys.openaiKey.trim() || undefined,
-        geminiKey: providerKeys.geminiKey.trim() || undefined,
-        xaiKey: providerKeys.xaiKey.trim() || undefined,
+        imageSource,
+        openaiKey: selectedImageProvider.id === 'openai'
+          ? imageProviderKeys.openaiImageKey.trim() || undefined
+          : undefined,
+        geminiKey: selectedImageProvider.id === 'gemini'
+          ? imageProviderKeys.geminiImageKey.trim() || undefined
+          : undefined,
+        xaiKey: selectedImageProvider.id === 'xai'
+          ? imageProviderKeys.xaiImageKey.trim() || undefined
+          : undefined,
         referenceImage: iconReferenceImage || undefined,
       });
       if (result.success) {
@@ -1789,7 +1907,12 @@ export default function App() {
       model: modelValue || undefined,
       openaiAuthMode: effectiveOpenAIAuthMode,
       providerKeys,
-      imageSource: imageSource || undefined,
+      imageProviderKeys: {
+        openaiImageKey: selectedImageProvider.id === 'openai' ? imageProviderKeys.openaiImageKey : '',
+        geminiImageKey: selectedImageProvider.id === 'gemini' ? imageProviderKeys.geminiImageKey : '',
+        xaiImageKey: selectedImageProvider.id === 'xai' ? imageProviderKeys.xaiImageKey : '',
+      },
+      imageSource,
     });
   };
 
@@ -2577,6 +2700,9 @@ export default function App() {
                 <span className={`summary-pill ${isAuthMode && !authProviderConnected ? 'tone-warning' : 'tone-neutral'}`}>
                   {agentStatusSummary}
                 </span>
+                <span className={`summary-pill ${selectedImageProviderHasKey ? 'tone-success' : 'tone-warning'}`}>
+                  Images: {imageProviderStatusSummary}
+                </span>
               </div>
 
               <div className="field-grid">
@@ -2631,7 +2757,12 @@ export default function App() {
                       onChange={(event) => setSelectedOpenCodeModel(event.target.value)}
                       value={selectedOpenCodeModel}
                     >
-                      <option value={OPENCODE_DEFAULT_MODEL_VALUE}>OpenCode configured default</option>
+                      <option value={OPENCODE_RECOMMENDED_MODEL_VALUE}>
+                        {recommendedOpenCodeModelOptionLabel}
+                      </option>
+                      {recommendedOpenCodeModel ? (
+                        <option value={OPENCODE_DEFAULT_MODEL_VALUE}>OpenCode default</option>
+                      ) : null}
                       {openCodeConfigProviders.map((provider) => (
                         <optgroup key={provider.id} label={provider.displayName || provider.id}>
                           {provider.models.map((model) => (
@@ -2683,33 +2814,51 @@ export default function App() {
                 ) : null}
               </div>
 
-              {isApiKeyMode ? (
-                <div className="field-grid">
-                  <div>
-                    <label className="field-label" htmlFor="imageSource">
-                      Glowbom Images
-                    </label>
-                    <select
-                      className="input"
-                      disabled={refine.isRunning}
-                      id="imageSource"
-                      onChange={(event) => setImageSource(event.target.value)}
-                      value={imageSource}
-                    >
-                      <option value="">None</option>
-                      {providerKeys.openaiKey.trim() ? (
-                        <option value={OPENAI_IMAGE_SOURCE}>GPT Image 2</option>
-                      ) : null}
-                      {providerKeys.geminiKey.trim() ? (
-                        <option value="Glowbom Images (Nano Banana 2)">Nano Banana 2</option>
-                      ) : null}
-                      {providerKeys.xaiKey.trim() ? (
-                        <option value={XAI_IMAGE_SOURCE}>Grok Imagine Image Quality</option>
-                      ) : null}
-                    </select>
-                  </div>
+              <section className="image-generation-settings" aria-labelledby="imageGenerationHeading">
+                <div className="settings-section-heading">
+                  <strong id="imageGenerationHeading">Image Generation</strong>
+                  <span className="meta">Used for app icons and project images. Separate from your coding agent.</span>
                 </div>
-              ) : null}
+
+                <div>
+                  <label className="field-label" htmlFor="imageSource">
+                    Provider
+                  </label>
+                  <select
+                    className="input"
+                    disabled={refine.isRunning}
+                    id="imageSource"
+                    onChange={(event) => setImageSource(event.target.value)}
+                    value={imageSource}
+                  >
+                    {IMAGE_PROVIDERS.map((provider) => (
+                      <option key={provider.id} value={provider.source}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field-grid image-provider-keys-grid">
+                  {IMAGE_PROVIDERS.map((provider) => {
+                    const isActive = provider.id === selectedImageProvider.id;
+                    return (
+                      <label className={`provider-key-item ${isActive ? 'active' : ''}`} key={provider.id}>
+                        <span className="field-label">{provider.keyLabel}</span>
+                        <input
+                          className="input"
+                          disabled={refine.isRunning}
+                          onChange={(event) => updateImageProviderKey(provider.keyField, event.target.value)}
+                          placeholder={provider.keyPlaceholder}
+                          type="password"
+                          value={imageProviderKeys[provider.keyField]}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                <span className="meta">Keys stay in this browser and are sent only to the local backend when used.</span>
+              </section>
 
               {isAuthMode ? (
                 <div className={`auth-connection-card ${authProviderConnected ? 'connected' : 'disconnected'}`}>
@@ -2903,7 +3052,7 @@ export default function App() {
           <div className="card-title-row">
             <div>
               <h2>Activity</h2>
-              <p className="meta">Logs, follow-up questions, and permission requests show up here while Glowbom OSS works.</p>
+              <p className="meta">Logs, follow-up questions, permissions, and media approvals show up here while Glowbom OSS works.</p>
             </div>
             <label className="checkbox-row">
               <input
@@ -3054,6 +3203,53 @@ export default function App() {
               </button>
             </div>
           </div>
+          ) : null}
+
+          {refine.pendingMediaApproval ? (
+            <div className="input-panel">
+              <h3>{refine.pendingMediaApproval.title}</h3>
+              {refine.pendingMediaApproval.message ? (
+                <p className="meta-text">{refine.pendingMediaApproval.message}</p>
+              ) : null}
+
+              <div className="media-approval-list">
+                {refine.pendingMediaApproval.items.map((item, index) => {
+                  const typeLabel = item.audioType || item.mediaType;
+                  return (
+                    <div className="media-approval-item" key={`${item.mediaType}-${item.prompt}-${index}`}>
+                      <div className="media-approval-item-heading">
+                        <span>{typeLabel}</span>
+                        {item.provider ? <span className="meta-text">{item.provider}</span> : null}
+                      </div>
+                      <p>{item.prompt}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="row">
+                <button
+                  className="button"
+                  disabled={refine.isSubmittingInput}
+                  onClick={() => {
+                    void refine.respondToMediaApproval('generate');
+                  }}
+                  type="button"
+                >
+                  Generate assets
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={refine.isSubmittingInput}
+                  onClick={() => {
+                    void refine.respondToMediaApproval('skip');
+                  }}
+                  type="button"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </div>
           ) : null}
         </section>
       </main>

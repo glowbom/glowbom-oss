@@ -3,6 +3,9 @@ import { openCodeApi, toErrorMessage } from '../lib/api';
 import { streamJsonSse } from '../lib/sse';
 import type {
   OpenCodeAgentRequest,
+  OpenCodeMediaApproval,
+  OpenCodeMediaApprovalItem,
+  OpenCodeMediaApprovalRespondRequest,
   OpenCodePermission,
   OpenCodePermissionRespondRequest,
   OpenCodeQuestion,
@@ -11,6 +14,7 @@ import type {
   OpenCodeQuestionRespondRequest,
   OpenCodeSseEvent,
   OpenAIAuthMode,
+  ImageProviderKeyState,
   ProviderKeyState,
 } from '../types/opencode';
 
@@ -26,6 +30,7 @@ export interface StartRefineInput {
   openaiRefreshToken?: string;
   openaiExpiresAt?: number;
   providerKeys: ProviderKeyState;
+  imageProviderKeys: ImageProviderKeyState;
   imageSource?: string;
 }
 
@@ -332,6 +337,50 @@ function normalizePermission(raw: unknown, fallbackSessionID: string): OpenCodeP
   };
 }
 
+function normalizeMediaApproval(raw: unknown): OpenCodeMediaApproval | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const id = toStringValue(record.id);
+  if (!id) {
+    return null;
+  }
+
+  const rawItems = Array.isArray(record.items) ? record.items : [];
+  const items = rawItems
+    .map((rawItem): OpenCodeMediaApprovalItem | null => {
+      if (!rawItem || typeof rawItem !== 'object') {
+        return null;
+      }
+      const item = rawItem as Record<string, unknown>;
+      const prompt = toStringValue(item.prompt);
+      const mediaType = toStringValue(item.mediaType);
+      if (!prompt || !mediaType) {
+        return null;
+      }
+      return {
+        mediaType,
+        prompt,
+        provider: toStringValue(item.provider),
+        audioType: toStringValue(item.audioType) || undefined,
+      };
+    })
+    .filter((item): item is OpenCodeMediaApprovalItem => item !== null);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    title: toStringValue(record.title) || 'Generate new media assets?',
+    message: toStringValue(record.message),
+    items,
+  };
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
@@ -354,6 +403,7 @@ export function useRefineRun() {
   const [partialLine, setPartialLine] = useState('');
   const [pendingQuestion, setPendingQuestion] = useState<OpenCodeQuestion | null>(null);
   const [pendingPermission, setPendingPermission] = useState<OpenCodePermission | null>(null);
+  const [pendingMediaApproval, setPendingMediaApproval] = useState<OpenCodeMediaApproval | null>(null);
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
@@ -521,6 +571,7 @@ export function useRefineRun() {
           }
           setPendingQuestion(question);
           setPendingPermission(null);
+          setPendingMediaApproval(null);
         }
       }
 
@@ -532,6 +583,16 @@ export function useRefineRun() {
           }
           setPendingPermission(permission);
           setPendingQuestion(null);
+          setPendingMediaApproval(null);
+        }
+      }
+
+      if (event.mediaApproval) {
+        const approval = normalizeMediaApproval(event.mediaApproval);
+        if (approval) {
+          setPendingMediaApproval(approval);
+          setPendingQuestion(null);
+          setPendingPermission(null);
         }
       }
 
@@ -555,6 +616,7 @@ export function useRefineRun() {
         flushPartialLine();
         setPendingPermission(null);
         setPendingQuestion(null);
+        setPendingMediaApproval(null);
 
         if (event.success === true) {
           setStatus('completed');
@@ -610,12 +672,14 @@ export function useRefineRun() {
       setPartialLine('');
       setPendingQuestion(null);
       setPendingPermission(null);
+      setPendingMediaApproval(null);
       setChangedFiles([]);
       setIsSubmittingInput(false);
 
       const payload: OpenCodeAgentRequest = {
         projectPath,
         openaiAuthMode: input.openaiAuthMode,
+        mediaGenerationPolicy: 'ask',
       };
       if (lastSessionIDRef.current) {
         payload.sessionID = lastSessionIDRef.current;
@@ -647,6 +711,9 @@ export function useRefineRun() {
       const opencodeZenKey = trimmedValue(input.providerKeys.opencodeZenKey);
       const xaiKey = trimmedValue(input.providerKeys.xaiKey);
       const elevenLabsKey = trimmedValue(input.providerKeys.elevenLabsKey);
+      const openaiImageKey = trimmedValue(input.imageProviderKeys.openaiImageKey);
+      const geminiImageKey = trimmedValue(input.imageProviderKeys.geminiImageKey);
+      const xaiImageKey = trimmedValue(input.imageProviderKeys.xaiImageKey);
 
       if (openaiKey) {
         payload.openaiKey = openaiKey;
@@ -671,6 +738,15 @@ export function useRefineRun() {
       }
       if (elevenLabsKey) {
         payload.elevenLabsKey = elevenLabsKey;
+      }
+      if (openaiImageKey) {
+        payload.openaiImageKey = openaiImageKey;
+      }
+      if (geminiImageKey) {
+        payload.geminiImageKey = geminiImageKey;
+      }
+      if (xaiImageKey) {
+        payload.xaiImageKey = xaiImageKey;
       }
 
       const imageSource = input.imageSource?.trim() || '';
@@ -805,6 +881,36 @@ export function useRefineRun() {
     [appendLine, isSubmittingInput, pendingPermission],
   );
 
+  const respondToMediaApproval = useCallback(
+    async (response: OpenCodeMediaApprovalRespondRequest['response']) => {
+      if (!pendingMediaApproval || isSubmittingInput) {
+        return false;
+      }
+
+      const approval = pendingMediaApproval;
+      setIsSubmittingInput(true);
+      try {
+        await openCodeApi.respondToMediaApproval({
+          approvalID: approval.id,
+          response,
+          projectPath: currentProjectPathRef.current || undefined,
+        });
+        setPendingMediaApproval(null);
+        setError(null);
+        appendLine(response === 'generate' ? 'Media generation approved.' : 'Media generation skipped.');
+        return true;
+      } catch (requestError) {
+        const message = toErrorMessage(requestError, 'Failed to send media approval response.');
+        setError(message);
+        appendLine(`❌ ${message}`);
+        return false;
+      } finally {
+        setIsSubmittingInput(false);
+      }
+    },
+    [appendLine, isSubmittingInput, pendingMediaApproval],
+  );
+
   return useMemo(
     () => ({
       status,
@@ -812,12 +918,13 @@ export function useRefineRun() {
       partialLine,
       pendingQuestion,
       pendingPermission,
+      pendingMediaApproval,
       isSubmittingInput,
       error,
       summary,
       changedFiles,
       isRunning: status === 'running',
-      isAwaitingInput: pendingQuestion !== null || pendingPermission !== null,
+      isAwaitingInput: pendingQuestion !== null || pendingPermission !== null || pendingMediaApproval !== null,
       hasSession,
       continueSession,
       setContinueSession,
@@ -825,6 +932,7 @@ export function useRefineRun() {
       stopRun,
       submitQuestion,
       respondToPermission,
+      respondToMediaApproval,
     }),
     [
       changedFiles,
@@ -835,8 +943,10 @@ export function useRefineRun() {
       logs,
       partialLine,
       pendingPermission,
+      pendingMediaApproval,
       pendingQuestion,
       respondToPermission,
+      respondToMediaApproval,
       startRefine,
       status,
       stopRun,

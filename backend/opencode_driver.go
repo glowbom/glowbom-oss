@@ -554,6 +554,40 @@ func glowbomOpenCodeRuntimePaths() (openCodeRuntimePaths, error) {
 	}, nil
 }
 
+func userOpenCodeRuntimePaths() (openCodeRuntimePaths, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return openCodeRuntimePaths{}, fmt.Errorf("failed to resolve user home directory for OpenCode runtime paths")
+	}
+
+	dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	if dataHome == "" {
+		dataHome = filepath.Join(homeDir, ".local", "share")
+	}
+	stateHome := strings.TrimSpace(os.Getenv("XDG_STATE_HOME"))
+	if stateHome == "" {
+		stateHome = filepath.Join(homeDir, ".local", "state")
+	}
+	configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if configHome == "" {
+		configHome = filepath.Join(homeDir, ".config")
+	}
+
+	return openCodeRuntimePaths{
+		DataHome:   dataHome,
+		StateHome:  stateHome,
+		AuthFile:   filepath.Join(dataHome, "opencode", "auth.json"),
+		ConfigHome: configHome,
+	}, nil
+}
+
+func authStatusRuntimePaths(mode string, glowbomPaths, userPaths openCodeRuntimePaths) openCodeRuntimePaths {
+	if mode == "opencode-config" || mode == "unknown" {
+		return userPaths
+	}
+	return glowbomPaths
+}
+
 func ensureOpenCodeRuntimeDirs(paths openCodeRuntimePaths) error {
 	if strings.TrimSpace(paths.DataHome) == "" || strings.TrimSpace(paths.StateHome) == "" {
 		return fmt.Errorf("invalid OpenCode runtime paths")
@@ -3434,10 +3468,17 @@ func cachedGlowbomOpenAIAuthMode() string {
 }
 
 func currentOpenCodeAuthStatus() openCodeAuthStatusResponse {
-	runtimePaths, err := glowbomOpenCodeRuntimePaths()
+	glowbomPaths, err := glowbomOpenCodeRuntimePaths()
 	if err != nil {
 		log.Printf("[OPENCODE] Warning: failed resolving runtime paths for auth diagnostics: %v", err)
 	}
+	userPaths, userPathsErr := userOpenCodeRuntimePaths()
+	if userPathsErr != nil {
+		log.Printf("[OPENCODE] Warning: failed resolving user OpenCode paths for auth diagnostics: %v", userPathsErr)
+		userPaths = glowbomPaths
+	}
+	authMode := cachedGlowbomOpenAIAuthMode()
+	runtimePaths := authStatusRuntimePaths(authMode, glowbomPaths, userPaths)
 
 	serverURL := "http://" + openCodeServerHostname() + ":" + getAgentPort()
 	return openCodeAuthStatusResponse{
@@ -3446,7 +3487,7 @@ func currentOpenCodeAuthStatus() openCodeAuthStatusResponse {
 		ConfiguredStateHome:   runtimePaths.StateHome,
 		AuthFilePath:          runtimePaths.AuthFile,
 		OpenAICredentialType:  openAICredentialTypeFromAuthFile(runtimePaths.AuthFile),
-		CachedGlowbomAuthMode: cachedGlowbomOpenAIAuthMode(),
+		CachedGlowbomAuthMode: authMode,
 	}
 }
 
@@ -3795,14 +3836,14 @@ func openCodeHealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := driver.CheckHealth(ctx); err != nil {
-		// Try to start server automatically with env vars (fallback)
+		// The OSS UI uses the user's OpenCode configuration by default.
 		log.Printf("[OPENCODE] Server unhealthy, attempting auto-start...")
-		if startErr := startOpenCodeServer(os.Getenv("OPENAI_API_KEY"), os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("GEMINI_API_KEY"), os.Getenv("FIREWORKS_API_KEY"), os.Getenv("OPENROUTER_API_KEY"), os.Getenv("OPENCODE_API_KEY"), os.Getenv("XAI_API_KEY"), "", ""); startErr != nil {
+		if startErr := startOpenCodeServer(os.Getenv("OPENAI_API_KEY"), os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("GEMINI_API_KEY"), os.Getenv("FIREWORKS_API_KEY"), os.Getenv("OPENROUTER_API_KEY"), os.Getenv("OPENCODE_API_KEY"), os.Getenv("XAI_API_KEY"), "", "opencode-config"); startErr != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"healthy": false,
 				"error":   err.Error(),
-				"hint":    "Failed to auto-start server. Install OpenCode CLI and ensure API keys are set.",
+				"hint":    "Failed to auto-start server. Install OpenCode CLI and complete OpenCode setup.",
 			})
 			return
 		}
@@ -4093,10 +4134,12 @@ type OpenCodeAgentRequest struct {
 	OpenAIKey                           string   `json:"openaiKey,omitempty"`
 	OpenAIImageKey                      string   `json:"openaiImageKey,omitempty"` // plain API key for image gen (codex-jwt lacks image scope)
 	GeminiKey                           string   `json:"geminiKey,omitempty"`
+	GeminiImageKey                      string   `json:"geminiImageKey,omitempty"`
 	FireworksKey                        string   `json:"fireworksKey,omitempty"`
 	OpenRouterKey                       string   `json:"openrouterKey,omitempty"`
 	OpenCodeZenKey                      string   `json:"opencodeZenKey,omitempty"`
 	XaiKey                              string   `json:"xaiKey,omitempty"`
+	XaiImageKey                         string   `json:"xaiImageKey,omitempty"`
 	VeoGeminiKey                        string   `json:"veoGeminiKey,omitempty"`
 	ElevenLabsKey                       string   `json:"elevenLabsKey,omitempty"`
 	ElevenLabsVoiceID                   string   `json:"elevenLabsVoiceID,omitempty"`
@@ -4104,10 +4147,30 @@ type OpenCodeAgentRequest struct {
 	ImageSource                         string   `json:"imageSource,omitempty"`
 	ReferenceImagePath                  string   `json:"referenceImagePath,omitempty"`
 	ReferenceAssetID                    string   `json:"referenceAssetID,omitempty"`
-	OpenAIAuthMode                      string   `json:"openaiAuthMode,omitempty"`     // "api-key" | "codex-jwt" | "opencode-config"
-	OpenAIAccountID                     string   `json:"openaiAccountID,omitempty"`    // chatgpt_account_id for JWT mode
-	OpenAIRefreshToken                  string   `json:"openaiRefreshToken,omitempty"` // refresh token for OpenCode auth sync
-	OpenAIExpiresAt                     float64  `json:"openaiExpiresAt,omitempty"`    // token expiry (seconds since reference date)
+	MediaGenerationPolicy               string   `json:"mediaGenerationPolicy,omitempty"` // "auto" | "ask" | "skip"
+	OpenAIAuthMode                      string   `json:"openaiAuthMode,omitempty"`        // "api-key" | "codex-jwt" | "opencode-config"
+	OpenAIAccountID                     string   `json:"openaiAccountID,omitempty"`       // chatgpt_account_id for JWT mode
+	OpenAIRefreshToken                  string   `json:"openaiRefreshToken,omitempty"`    // refresh token for OpenCode auth sync
+	OpenAIExpiresAt                     float64  `json:"openaiExpiresAt,omitempty"`       // token expiry (seconds since reference date)
+}
+
+func resolveAgentImageProviderKeys(req OpenCodeAgentRequest) (string, string, string) {
+	openAIKey := strings.TrimSpace(req.OpenAIImageKey)
+	if openAIKey == "" {
+		openAIKey = strings.TrimSpace(req.OpenAIKey)
+	}
+
+	geminiKey := strings.TrimSpace(req.GeminiImageKey)
+	if geminiKey == "" {
+		geminiKey = strings.TrimSpace(req.GeminiKey)
+	}
+
+	xaiKey := strings.TrimSpace(req.XaiImageKey)
+	if xaiKey == "" {
+		xaiKey = strings.TrimSpace(req.XaiKey)
+	}
+
+	return openAIKey, geminiKey, xaiKey
 }
 
 // openCodeRefineHandler handles refine requests - uses agent to improve code
@@ -4416,21 +4479,67 @@ func openCodeRefineHandler(w http.ResponseWriter, r *http.Request) {
 	platformAssetsSynced := false
 	mediaGeneratedCount := 0
 	mediaReusedCount := 0
+	mediaPolicy := normalizeMediaGenerationPolicy(req.MediaGenerationPolicy)
+
+	if shouldRunMediaPostPass && mediaPolicy != "auto" {
+		approvalPlan, approvalPlanErr := buildOpenCodeMediaApproval(OpenCodeMediaPostPassRequest{
+			ProjectPath:        req.ProjectPath,
+			ImageSource:        req.ImageSource,
+			ReferenceImagePath: req.ReferenceImagePath,
+			ReferenceAssetID:   req.ReferenceAssetID,
+			ScanTargets:        []string{"prototype/index.html"},
+		})
+		if approvalPlanErr != nil {
+			warning := fmt.Sprintf("Could not inspect pending media safely: %s", sanitizeProviderError(approvalPlanErr))
+			sendSSEData(w, flusher, map[string]interface{}{"output": "⚠️  " + warning})
+			mediaPostPassSummary["warnings"] = []string{warning}
+			if mediaPolicy != "auto" {
+				shouldRunMediaPostPass = false
+				mediaPostPassSummary["approval"] = "skipped"
+			}
+		} else if approvalPlan != nil {
+			mediaPostPassSummary["pending"] = len(approvalPlan.Items)
+			switch mediaPolicy {
+			case "skip":
+				shouldRunMediaPostPass = false
+				mediaPostPassSummary["approval"] = "skipped"
+				sendSSEData(w, flusher, map[string]interface{}{
+					"output": fmt.Sprintf("⏭️  Skipped %d new media asset request(s). Existing assets were left unchanged.", len(approvalPlan.Items)),
+				})
+			case "ask":
+				approvalID, approvalResponse := registerOpenCodeMediaApproval(req.ProjectPath)
+				approvalPlan.ID = approvalID
+				sendSSEData(w, flusher, map[string]interface{}{"mediaApproval": approvalPlan})
+				decision, decisionErr := waitForOpenCodeMediaApproval(ctx, approvalID, approvalResponse)
+				if decisionErr != nil {
+					sendSSEData(w, flusher, map[string]interface{}{
+						"output": "⚠️  Media approval was not received. New paid assets were skipped.",
+					})
+				}
+				if decision != "generate" {
+					shouldRunMediaPostPass = false
+					mediaPostPassSummary["approval"] = "skipped"
+					sendSSEData(w, flusher, map[string]interface{}{
+						"output": fmt.Sprintf("⏭️  Kept %d new media asset request(s) pending without calling providers.", len(approvalPlan.Items)),
+					})
+				} else {
+					mediaPostPassSummary["approval"] = "approved"
+					sendSSEData(w, flusher, map[string]interface{}{"output": "✅ Media generation approved for this run."})
+				}
+			}
+		}
+	}
 
 	if shouldRunMediaPostPass {
 		sendSSEData(w, flusher, map[string]interface{}{"output": "🪄 Running media post-pass (image/video/audio materialization + platform sync)..."})
 
-		// Prefer plain API key for image generation (codex-jwt lacks image scope)
-		imageKey := strings.TrimSpace(req.OpenAIImageKey)
-		if imageKey == "" {
-			imageKey = req.OpenAIKey
-		}
+		openAIImageKey, geminiImageKey, xaiImageKey := resolveAgentImageProviderKeys(req)
 		postPassResp, postPassErr := runOpenCodeMediaPostPass(ctx, OpenCodeMediaPostPassRequest{
 			ProjectPath:          req.ProjectPath,
 			ImageSource:          req.ImageSource,
-			OpenAIKey:            imageKey,
-			GeminiKey:            req.GeminiKey,
-			XaiKey:               req.XaiKey,
+			OpenAIKey:            openAIImageKey,
+			GeminiKey:            geminiImageKey,
+			XaiKey:               xaiImageKey,
 			VeoGeminiKey:         req.VeoGeminiKey,
 			ElevenLabsKey:        req.ElevenLabsKey,
 			ElevenLabsVoiceID:    req.ElevenLabsVoiceID,

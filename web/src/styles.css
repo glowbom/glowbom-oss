@@ -345,6 +345,20 @@ p {
   background: #f9fcfb;
 }
 
+.image-generation-settings {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fcfffd;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.settings-section-heading {
+  display: grid;
+  gap: 3px;
+}
+
 .summary-pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -1283,6 +1297,29 @@ textarea.input {
 
 .input-panel h3 {
   font-size: 1rem;
+}
+
+.media-approval-list {
+  display: grid;
+  gap: 8px;
+}
+
+.media-approval-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px;
+  display: grid;
+  gap: 5px;
+}
+
+.media-approval-item-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
 }
 
 .settings-card {

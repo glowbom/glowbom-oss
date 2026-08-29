@@ -32,6 +32,14 @@ export interface ProviderKeyState {
   elevenLabsKey: string;
 }
 
+export type ImageProviderID = 'openai' | 'gemini' | 'xai';
+
+export interface ImageProviderKeyState {
+  openaiImageKey: string;
+  geminiImageKey: string;
+  xaiImageKey: string;
+}
+
 export interface OpenCodeHealthResponse {
   healthy: boolean;
   server?: string;
@@ -238,17 +246,21 @@ export interface OpenCodeAgentRequest {
   instructionAttachmentPaths?: string[];
   model?: string;
   openaiKey?: string;
+  openaiImageKey?: string;
   openaiAuthMode?: OpenAIAuthMode;
   openaiRefreshToken?: string;
   openaiExpiresAt?: number;
   anthropicKey?: string;
   geminiKey?: string;
+  geminiImageKey?: string;
   fireworksKey?: string;
   openrouterKey?: string;
   opencodeZenKey?: string;
   xaiKey?: string;
+  xaiImageKey?: string;
   elevenLabsKey?: string;
   imageSource?: string;
+  mediaGenerationPolicy?: 'auto' | 'ask' | 'skip';
 }
 
 export interface OpenCodeQuestionOption {
@@ -297,6 +309,26 @@ export interface OpenCodePermissionRespondRequest {
   projectPath?: string;
 }
 
+export interface OpenCodeMediaApprovalItem {
+  mediaType: 'image' | 'video' | 'audio' | string;
+  prompt: string;
+  provider: string;
+  audioType?: 'voice' | 'sound' | 'music' | string;
+}
+
+export interface OpenCodeMediaApproval {
+  id: string;
+  title: string;
+  message: string;
+  items: OpenCodeMediaApprovalItem[];
+}
+
+export interface OpenCodeMediaApprovalRespondRequest {
+  approvalID: string;
+  response: 'generate' | 'skip';
+  projectPath?: string;
+}
+
 export interface OpenCodeSseEvent {
   output?: string;
   outputChunk?: string;
@@ -307,6 +339,7 @@ export interface OpenCodeSseEvent {
   changedFiles?: string[];
   question?: unknown;
   permission?: unknown;
+  mediaApproval?: unknown;
   [key: string]: unknown;
 }
 

@@ -53,6 +53,7 @@ func main() {
 	mux.HandleFunc("/providers/openai/models", openAIModelsHandler)
 	mux.HandleFunc("/opencode/refine", openCodeRefineHandler)
 	mux.HandleFunc("/opencode/media/postpass", openCodeMediaPostPassHandler)
+	mux.HandleFunc("/opencode/media/approval/respond", openCodeMediaApprovalRespondHandler)
 	mux.HandleFunc("/opencode/verify", openCodeVerifyHandler)
 	mux.HandleFunc("/opencode/question/respond", openCodeQuestionRespondHandler)
 	mux.HandleFunc("/opencode/permission/respond", openCodePermissionRespondHandler)
