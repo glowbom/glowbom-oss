@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BuzzMembersPanel } from './components/BuzzMembersPanel';
 import {
   MODEL_PROVIDERS,
   decodeModelOptionValue,
@@ -674,6 +675,10 @@ export default function App() {
       return next;
     });
   };
+  const [agentDriver, setAgentDriver] = useState<'opencode' | 'cursor'>('opencode');
+  const [cursorModel, setCursorModel] = useState('');
+  const setupCheckRef = useRef(0);
+  const isCursor = agentDriver === 'cursor';
   const [credentialMode, setCredentialModeRaw] = useState<CredentialMode>(loadCredentialMode);
   const setCredentialMode = (mode: CredentialMode) => {
     setCredentialModeRaw(mode);
@@ -722,7 +727,7 @@ export default function App() {
   const modelGroups = useMemo(() => modelCatalogGroups(dynamicOpenAIModels), [dynamicOpenAIModels]);
   const isAuthMode = credentialMode === 'auth';
   const isApiKeyMode = credentialMode === 'api-key';
-  const isOpenCodeConfigMode = credentialMode === 'opencode-config';
+  const isOpenCodeConfigMode = !isCursor && credentialMode === 'opencode-config';
   const effectiveOpenAIAuthMode: OpenAIAuthMode = isAuthMode
     ? 'codex-jwt'
     : isOpenCodeConfigMode
@@ -775,7 +780,7 @@ export default function App() {
     return [...refine.logs, refine.partialLine];
   }, [refine.logs, refine.partialLine]);
 
-  const setupStatusText = health?.healthy ? 'Backend connected' : health ? 'Backend unavailable' : 'Checking backend';
+  const setupStatusText = health?.healthy ? 'Agent ready' : health ? 'Agent needs setup' : healthError ? 'Check failed' : 'Checking agent';
   const shouldFetchOpenAIModels = isAuthMode && selectedProvider === 'openai';
   const ideActions = useMemo(() => ideStatus?.actions ?? [], [ideStatus?.actions]);
   const finderAction = useMemo(() => ideActionFor(ideActions, 'finder'), [ideActions]);
@@ -813,7 +818,7 @@ export default function App() {
     ? `Recommended: ${recommendedOpenCodeModel.modelLabel} via ChatGPT`
     : 'OpenCode default';
   const systemNeedsAttention = Boolean(
-    healthError || authError || health?.healthy === false || authStatus?.serverRunning === false,
+    healthError || health?.healthy === false || (!isCursor && (authError || authStatus?.serverRunning === false)),
   );
   const systemStatusSummary = useMemo(() => {
     if (healthError) {
@@ -823,17 +828,18 @@ export default function App() {
       return 'Checking setup';
     }
     if (health?.healthy === false) {
-      return 'Backend needs attention';
+      return 'Agent needs setup';
     }
-    if (authError) {
+    if (!isCursor && authError) {
       return 'Auth check failed';
     }
-    if (authStatus?.serverRunning === false) {
+    if (!isCursor && authStatus?.serverRunning === false) {
       return 'Agent server stopped';
     }
     return 'Local backend ready';
-  }, [authError, authStatus, health, healthError]);
+  }, [authError, authStatus, health, healthError, isCursor]);
   const agentStatusSummary = useMemo(() => {
+    if (isCursor) return cursorModel.trim() ? `Cursor: ${cursorModel.trim()}` : 'Cursor default';
     if (isOpenCodeConfigMode) {
       return selectedOpenCodeModelLabel;
     }
@@ -853,6 +859,8 @@ export default function App() {
     return 'Choose a model';
   }, [
     customModel,
+    isCursor,
+    cursorModel,
     isAuthMode,
     isChatGPTConnected,
     isOpenCodeConfigMode,
@@ -936,26 +944,30 @@ export default function App() {
   }, [allOptionValues, decodedSelection, selectedModelOption]);
 
   const refreshSetup = async () => {
+    const check = ++setupCheckRef.current;
     setIsCheckingSetup(true);
+    setHealth(null);
     setHealthError(null);
     setAuthError(null);
-
     try {
-      const healthResult = await openCodeApi.getHealth();
+      const healthResult = await openCodeApi.getHealth(agentDriver);
+      if (check !== setupCheckRef.current) return;
       setHealth(healthResult);
     } catch (error) {
-      setHealth(null);
-      setHealthError(toErrorMessage(error, 'Failed to check backend health.'));
+      if (check !== setupCheckRef.current) return;
+      setHealthError(toErrorMessage(error, 'Failed to check agent availability.'));
     }
-
-    try {
-      const authResult = await openCodeApi.getAuthStatus();
-      setAuthStatus(authResult);
-    } catch (error) {
-      setAuthStatus(null);
-      setAuthError(toErrorMessage(error, 'Failed to fetch auth status.'));
+    if (!isCursor) {
+      try {
+        const authResult = await openCodeApi.getAuthStatus();
+        if (check !== setupCheckRef.current) return;
+        setAuthStatus(authResult);
+      } catch (error) {
+        if (check !== setupCheckRef.current) return;
+        setAuthStatus(null);
+        setAuthError(toErrorMessage(error, 'Failed to fetch auth status.'));
+      }
     }
-
     setIsCheckingSetup(false);
   };
 
@@ -1004,7 +1016,8 @@ export default function App() {
 
   useEffect(() => {
     void refreshSetup();
-  }, []);
+    return () => { setupCheckRef.current++; };
+  }, [agentDriver]);
 
   useEffect(() => {
     const container = consoleRef.current;
@@ -1802,8 +1815,8 @@ export default function App() {
 
     const finalInstructionsWithTargets = finalInstructions + targetGuidance;
 
-    if (healthError || health?.healthy === false) {
-      setFormError('Glowbom OSS cannot reach the local backend right now. Open Settings, refresh the checks, and try again.');
+    if (isCheckingSetup || healthError || health?.healthy === false) {
+      setFormError('The selected agent is not ready. Open Settings, refresh the checks, and follow the setup instructions.');
       setIsSettingsOpen(true);
       return;
     }
@@ -1823,7 +1836,9 @@ export default function App() {
       .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
 
     let modelValue = '';
-    if (isOpenCodeConfigMode) {
+    if (isCursor) {
+      modelValue = cursorModel.trim();
+    } else if (isOpenCodeConfigMode) {
       modelValue = resolvedOpenCodeModelValue;
     } else {
       const customModelTrimmed = customModel.trim();
@@ -1900,6 +1915,7 @@ export default function App() {
     });
 
     void refine.startRefine({
+      agentDriver,
       projectPath: selectedProjectPath,
       instructions: finalInstructionsWithTargets,
       persistCurrentInstructionsToHistory: true,
@@ -2168,29 +2184,17 @@ export default function App() {
         <div className="topbar-inner">
           <a className="topbar-logo" href="https://glowbom.com" rel="noreferrer" target="_blank">
             <img alt="Glowbom" src={topbarLogoSrc} />
+            <span className="topbar-product">OSS</span>
           </a>
-          <nav className="topbar-links">
-            <a href="https://glowbom.com/oss" rel="noreferrer" target="_blank">
-              Glowbom OSS
-            </a>
-            <a href="https://glowbom.com/desktop/" rel="noreferrer" target="_blank">
-              Desktop
-            </a>
-            <a href="https://glowbom.com/terms.html" rel="noreferrer" target="_blank">
-              Terms
-            </a>
-            <a href="https://glowbom.com/pricing/" rel="noreferrer" target="_blank">
-              Pricing
-            </a>
-            <a href="https://glowbom.com/docs/" rel="noreferrer" target="_blank">
-              Docs
-            </a>
-            <a href="https://glowbom.com/#case_studies" rel="noreferrer" target="_blank">
-              Apps
-            </a>
+          <nav className="topbar-links" aria-label="Main navigation">
+            <a href="https://glowbom.com/desktop/" rel="noreferrer" target="_blank">Desktop</a>
+            <a href="https://github.com/glowbom/glowbom-oss" rel="noreferrer" target="_blank">Open Source</a>
+            <a href="https://glowbom.com/docs/" rel="noreferrer" target="_blank">Docs</a>
+            <a href="https://glowbom.com/blog/" rel="noreferrer" target="_blank">Blog</a>
+            <a href="https://glowbom.com/pricing/" rel="noreferrer" target="_blank">Pricing</a>
           </nav>
           <a className="button topbar-cta" href="https://glowbom.com/draw" rel="noreferrer" target="_blank">
-            Get Started for Free
+            Get started for free
           </a>
         </div>
       </header>
@@ -2689,6 +2693,8 @@ export default function App() {
                 </button>
               </div>
 
+              <BuzzMembersPanel elevenLabsKey={providerKeys.elevenLabsKey} />
+
               <div className="summary-pill-row">
                 <span
                   className={`summary-pill ${
@@ -2705,6 +2711,24 @@ export default function App() {
                 </span>
               </div>
 
+              <label className="field-label" htmlFor="agentDriver">Coding agent</label>
+              <select className="input" id="agentDriver" value={agentDriver}
+                disabled={refine.isRunning}
+                onChange={(event) => setAgentDriver(event.target.value as 'opencode' | 'cursor')}>
+                <option value="opencode">OpenCode</option>
+                <option value="cursor">Cursor (preview)</option>
+              </select>
+              {isCursor ? (
+                <div>
+                  <p className="meta">Install Cursor CLI and run <code>cursor-agent login</code> on this computer, then refresh. Uses your Cursor account.</p>
+                  <label className="field-label" htmlFor="cursorModel">Cursor model (optional)</label>
+                  <input className="input" id="cursorModel" value={cursorModel}
+                    disabled={refine.isRunning} placeholder="Cursor default"
+                    onChange={(event) => setCursorModel(event.target.value)} />
+                  <p className="meta">Use a model from <code>cursor-agent models</code>, or leave blank for the default.</p>
+                  <p className="meta">Build lets Cursor edit files and run commands without individual confirmations, using your local Cursor permissions. Automatic project media generation is unavailable with Cursor.</p>
+                </div>
+              ) : (<>
               <div className="field-grid">
                 <div>
                   <label className="field-label" htmlFor="credentialMode">
@@ -2813,6 +2837,8 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
+
+              </>)}
 
               <section className="image-generation-settings" aria-labelledby="imageGenerationHeading">
                 <div className="settings-section-heading">
@@ -2952,21 +2978,21 @@ export default function App() {
 
               <div className="status-grid">
                 <div className="status-tile">
-                  <span className="status-label">Backend</span>
+                  <span className="status-label">Agent connection</span>
                   <strong className={health?.healthy ? 'ok' : health ? 'warn' : ''}>{setupStatusText}</strong>
                   {health?.server ? <span className="meta">{health.server}</span> : null}
                   {health?.hint ? <span className="meta">{health.hint}</span> : null}
                   {healthError ? <span className="error-inline">{healthError}</span> : null}
                 </div>
 
-                <div className="status-tile">
+                {!isCursor ? <div className="status-tile">
                   <span className="status-label">Agent server</span>
                   <strong className={authStatus?.serverRunning ? 'ok' : authStatus ? 'warn' : ''}>
                     {authStatus ? (authStatus.serverRunning ? 'Running' : 'Stopped') : 'Checking...'}
                   </strong>
                   <span className="meta">Auth: {formatAuthMode(authStatus?.cachedGlowbomAuthMode)}</span>
                   {authError ? <span className="error-inline">{authError}</span> : null}
-                </div>
+                </div> : null}
               </div>
 
               {isLoadingOpenAIModels ? <p className="meta">Loading OpenAI models...</p> : null}

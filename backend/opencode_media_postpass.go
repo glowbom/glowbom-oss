@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	glowbyImagePlaceholderRegex = regexp.MustCompile(`glowbyimage:([^"'<>]+)`)
+	glowbyImagePlaceholderRegex = regexp.MustCompile(`(?:glowby|glowbom)images?:([^"'<>]+)`)
 	glowbyVideoPlaceholderRegex = regexp.MustCompile(`glowbyvideo:([^"'<>]+)`)
 	glowbyAudioPlaceholderRegex = regexp.MustCompile(`glowbyaudio:([^"'<>]+)`)
 	sensitiveValueRegex         = regexp.MustCompile(`(?i)(api[_-]?key|authorization|bearer)\s*[:=]\s*[^,\s]+`)

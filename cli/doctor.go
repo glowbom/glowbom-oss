@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,7 +18,7 @@ func runDoctor() int {
 	checks := []depCheck{
 		{name: "go", required: true, fixHint: "Install: https://go.dev/dl/"},
 		{name: "bun", required: true, fixHint: "Install: https://bun.sh/"},
-		{name: "opencode", required: true, fixHint: "Install: bun install -g opencode-ai (or see https://opencode.ai)"},
+		{name: "opencode", required: false, fixHint: "Install: bun install -g opencode-ai (or use Cursor CLI)"},
 	}
 
 	issues := 0
@@ -40,6 +42,15 @@ func runDoctor() int {
 		}
 	}
 
+	if _, err := exec.LookPath("opencode"); err != nil {
+		if !cursorCLIAvailable() {
+			issues++
+			fmt.Println("  [MISSING] Coding agent: install OpenCode or Cursor CLI (https://cursor.com/docs/cli/installation)")
+		} else {
+			fmt.Println("  [ok]    Cursor CLI found. Run cursor-agent login and choose Cursor in Settings.")
+		}
+	}
+
 	if root, err := findGlowbomRoot(); err != nil {
 		issues++
 		fmt.Println("  [MISSING] Glowbom OSS checkout")
@@ -56,6 +67,22 @@ func runDoctor() int {
 	}
 	fmt.Println("All checks passed.")
 	return 0
+}
+
+func cursorCLIAvailable() bool {
+	if configured := strings.TrimSpace(os.Getenv("GLOWBOM_CURSOR_BIN")); configured != "" {
+		_, err := exec.LookPath(configured)
+		return err == nil
+	}
+	if _, err := exec.LookPath("cursor-agent"); err == nil {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = exec.LookPath(filepath.Join(home, ".local", "bin", "cursor-agent"))
+	return err == nil
 }
 
 func commandVersion(name string) string {

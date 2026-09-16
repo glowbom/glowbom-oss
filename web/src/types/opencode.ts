@@ -239,6 +239,7 @@ export interface OpenCodeProjectOpenResponse {
 }
 
 export interface OpenCodeAgentRequest {
+  agentDriver?: 'opencode' | 'cursor';
   projectPath: string;
   sessionID?: string;
   instructions?: string;

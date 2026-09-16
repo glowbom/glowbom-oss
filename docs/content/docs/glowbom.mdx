@@ -1,45 +1,40 @@
 ---
 title: Glowbom
-description: A sketch-to-software system for building native apps from drawings.
+description: Begin with an idea, build a prototype, and keep the project understandable.
 ---
 
-Glowbom turns drawings into native applications. You sketch what you want, get a working prototype, and coding agents make it production ready.
+Glowbom is a sketch-to-software tool. Start with something you can show or
+explain, try a working prototype, and continue building with tools you choose.
 
-You own everything. All code lives on your machine. Cloud services are optional.
+## Start with a sketch
 
-## How it works
+Open [Glowbom Web](https://glowbom.com/draw/), draw your idea, and describe what
+should happen. Generate a prototype and test its behavior before deciding what
+to change next.
 
-1. **Sketch your idea** on the canvas at [glowbom.com](https://glowbom.com).
-2. **Get a working prototype** you can try right in your browser.
-3. **Pick a platform** and translate it into code for iOS, Android, or web.
-4. **Make it production ready** with [Glowbom OSS](./glowbom-oss) running on your own computer. One of the coolest things is that the agent can update all codebases for iOS, Android, and web at the same time when you make follow-up changes.
+A generated result is a starting point. Review its behavior, code, and platform
+requirements before publishing it.
 
-See the [Quickstart](./quickstart) for a full walkthrough with screenshots.
+## Continue with local tools
 
-## What you can build
+[Glowbom OSS](./glowbom-oss) lets you load local project files and work with coding
+agents through OpenCode. You can use a Glowbom export, the bundled starter, or
+another project structure.
 
-- Websites (Next.js)
-- Mobile apps (SwiftUI, Jetpack Compose)
-- Simple games
-- Prototypes and MVPs
+The starter contains Apple, Android, and web folders. Each target still needs
+its own build tools and testing. Generating code does not automatically produce
+a tested app for every platform.
 
-## Models and providers
+## Keep what the project means
 
-Glowbom OSS is powered by your local OpenCode setup. We recommend signing in to ChatGPT through OpenCode, but you can use any provider and model available in your OpenCode configuration.
+The [Project Book](./project-book) is the direction behind the workflow: keep the
+idea, decisions, assets, and history together with the code. It should help you
+return to a project without reconstructing every earlier conversation.
 
-You pick what works best for your project. There are many options and the quality is high across the board.
+## Choose your environment
 
-## Glowbom OSS
+- **Web:** capture an idea and try a prototype.
+- **OSS:** continue locally with the open workflow available today.
+- **Desktop:** join the [waitlist](./desktop) for the planned macOS, Windows, and Linux experience.
 
-[Glowbom OSS](./glowbom-oss) is the free, open source tool that takes your project and makes it ready to ship. It runs on your computer and uses the providers and models configured in OpenCode.
-
-## Starter project
-
-The repo includes a ready-to-use project template in `project/` with folders for each platform:
-
-- `project/apple/`: iOS app
-- `project/android/`: Android app
-- `project/web/`: web app
-- `project/prototype/`: design and assets
-
-Remove any platform folder you do not need.
+See the [Quickstart](./quickstart) for the first steps.

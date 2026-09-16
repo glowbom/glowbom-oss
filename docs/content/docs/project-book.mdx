@@ -1,0 +1,53 @@
+---
+title: Project Book
+description: Keep the idea, decisions, and history beside the code.
+---
+
+When a house is built, its drawings explain what was intended and how it fits
+together. A Glowbom Project Book brings that idea to software.
+
+The code shows what exists. The Book should also explain why it exists, what
+changed, and what still needs to happen.
+
+## What belongs in a Book
+
+- The purpose of the project and who it is for.
+- Sketches, screenshots, and useful assets.
+- Important decisions and the reasons behind them.
+- The current result, its limitations, and the next step.
+- A history of accepted changes.
+
+## Readable files
+
+The direction is a portable collection of files kept with the project. A starting
+layout can look like this:
+
+```text
+project-book/
+  README.md
+  intent.md
+  current-result.md
+  decisions.md
+  next.md
+  PROJECT_BRIEF.md
+  history/
+```
+
+The Project Brief is a short view of the Book for a coding agent. It should be
+regenerated from the project record rather than becoming a competing source of
+truth.
+
+## Be clear about what is known
+
+Separate information found in the project from an agent's inference and decisions
+confirmed by the owner. Old code alone cannot explain every original intention.
+
+## Current status
+
+The integrated Book workflow is under development. This page describes the
+intended format, not a guarantee that automatic Book creation, editing, history,
+or synchronization is available in every released client.
+
+You can keep these notes manually beside your code today. Use the
+[available OSS workflow](./glowbom-oss) for local agent work, and review each change
+before updating your project record.

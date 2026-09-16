@@ -589,13 +589,11 @@ func processCommandSummaryWindows(pid int) (string, error) {
 }
 
 func listPortPIDsUnix(port int) ([]int, error) {
-	out, err := exec.Command("lsof", "-nP", "-ti", fmt.Sprintf("tcp:%d", port)).Output()
+	// Client connections can outlive the server. Only listeners own the port.
+	out, err := exec.Command("lsof", "-nP", "-t", "-a", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN").Output()
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && len(exitErr.Stderr) == 0 && len(out) == 0 {
-			return nil, nil
-		}
-		if errors.As(err, &exitErr) && len(out) == 0 {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(exitErr.Stderr) == 0 && len(out) == 0 {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("could not inspect port %d with lsof: %w", port, err)

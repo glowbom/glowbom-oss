@@ -129,6 +129,12 @@ func glowbomBackendInfoPayload() backendInfo {
 		},
 		Drivers: []backendDriver{
 			{
+				ID:          "cursor",
+				Label:       "Cursor CLI",
+				Status:      "preview",
+				Description: "Optional local refinement driver using your Cursor CLI login. Select Cursor in Settings after installing and signing in to its CLI.",
+			},
+			{
 				ID:          "opencode",
 				Label:       "OpenCode",
 				Status:      "available",

@@ -21,6 +21,7 @@ import type {
 export type RefineRunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface StartRefineInput {
+  agentDriver?: 'opencode' | 'cursor';
   projectPath: string;
   instructions?: string;
   persistCurrentInstructionsToHistory?: boolean;
@@ -412,6 +413,7 @@ export function useRefineRun() {
   const [hasSession, setHasSession] = useState(false);
 
   const currentProjectPathRef = useRef('');
+  const currentDriverRef = useRef('opencode');
   const lastSessionIDRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -464,7 +466,7 @@ export function useRefineRun() {
     }
 
     const lower = line.toLowerCase();
-    if (lower.includes('agent needs input') || lower.startsWith('❓ question:')) {
+    if (currentDriverRef.current === 'opencode' && (lower.includes('agent needs input') || lower.startsWith('❓ question:'))) {
       setPendingQuestion((existing) => {
         if (existing) {
           return existing;
@@ -659,11 +661,12 @@ export function useRefineRun() {
       abortControllerRef.current?.abort();
 
       // Clear session if toggle is off or project changed.
-      if (!continueSession || currentProjectPathRef.current !== projectPath) {
+      if (!continueSession || currentProjectPathRef.current !== projectPath || currentDriverRef.current !== (input.agentDriver || 'opencode')) {
         lastSessionIDRef.current = '';
         setHasSession(false);
       }
       currentProjectPathRef.current = projectPath;
+      currentDriverRef.current = input.agentDriver || 'opencode';
 
       setStatus('running');
       setError(null);
@@ -677,6 +680,7 @@ export function useRefineRun() {
       setIsSubmittingInput(false);
 
       const payload: OpenCodeAgentRequest = {
+        agentDriver: input.agentDriver,
         projectPath,
         openaiAuthMode: input.openaiAuthMode,
         mediaGenerationPolicy: 'ask',

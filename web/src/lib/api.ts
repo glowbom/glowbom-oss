@@ -66,8 +66,8 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
 }
 
 export const openCodeApi = {
-  async getHealth(): Promise<OpenCodeHealthResponse> {
-    return requestJson<OpenCodeHealthResponse>(`${API_PREFIX}/opencode/health`);
+  async getHealth(agentDriver: 'opencode' | 'cursor' = 'opencode'): Promise<OpenCodeHealthResponse> {
+    return requestJson<OpenCodeHealthResponse>(`${API_PREFIX}/opencode/health?agentDriver=${agentDriver}`);
   },
 
   async getAuthStatus(): Promise<OpenCodeAuthStatus> {

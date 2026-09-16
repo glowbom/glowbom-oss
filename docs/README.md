@@ -1,73 +1,64 @@
-# Glowbom OSS
+# Glowbom documentation portal
 
-Glowbom OSS helps you build production-ready software with coding agents. It is an open source coding agent workflow for real projects. It is built primarily for Glowbom projects, but the workflow can also work with other project structures.
+This directory is the source for the public documentation at `glowbom.com/docs/`.
+It uses React Router, Fumadocs, and MDX. It is separate from the marketing site.
+For the local Glowbom product setup, see the [repository README](../README.md).
 
-## What It Does
+## Edit the content
 
-- Make software projects and prototypes production-ready with coding agents
-- Use the providers and models already configured in OpenCode
+Public pages live in `content/docs/`. Their titles and descriptions come from
+MDX frontmatter. `content/docs/meta.json` controls sidebar order. When adding a
+page, also add its route to the prerender list in `react-router.config.ts`.
+Search records are generated from the same content.
 
-## Requirements
+Use Glowbom for public names. Describe available behavior from the implementation
+and distinguish it from planned work. Desktop currently has a waitlist and is
+planned for macOS, Windows, and Linux. The documented OSS setup uses macOS, Linux,
+or WSL on Windows. Do not describe the whole workflow as offline when it uses a
+cloud model. Keep this directory independent of files outside the OSS repository.
 
-Install these first:
+## Develop
 
-- [Go](https://go.dev/)
-- [Bun](https://bun.sh/)
-- [OpenCode](https://opencode.ai/)
-
-## Quickstart
-
-### 1. Run the backend
-
-```bash
-cd backend
-go run .
-```
-The backend runs on `http://localhost:4569`.
-
-### 2. Run the web app
+From this directory:
 
 ```bash
-cd web
 bun install
 bun run dev
 ```
 
-The web app runs on `http://localhost:4572`.
+Development serves the portal at `/`. To preview the production URL layout:
 
-### 3. Start using Glowbom OSS
+```bash
+DOCS_BASE_PATH=/docs bun run dev --host 127.0.0.1 --port 3005
+```
 
-1. Open `http://localhost:4572`
-2. Load a local project
-3. Choose the model from your OpenCode setup, or keep its configured default
-4. Start a refine run
+Open `http://127.0.0.1:3005/docs/`.
 
-Glowbom OSS uses your local OpenCode setup for provider access. We recommend running `opencode auth login`, choosing OpenAI, and signing in with ChatGPT Plus/Pro through OpenCode.
+## Validate and build
 
-## Using the Bundled Default Project
+```bash
+bun run typecheck
+bun run build
+```
 
-This repo includes a ready-to-use Glowbom default project in `project/`.
+The production base path is `/docs`. Static files are generated under
+`build/client/`; `build/server/` contains server output and is not needed when
+publishing the prerendered portal to static hosting.
 
-You can use `project/` as your main starting template without logging in to Glowbom.com or downloading a project export first. Just copy the folder, rename it if you want, and start customizing it locally.
+## Publish with the existing website
 
-The bundled project includes:
+The portal has its own build. Rebuilding the marketing website does not update
+these docs.
 
-- `project/prototype/` - reference design and assets
-- `project/apple/` - Apple app project
-- `project/android/` - Android app project
-- `project/web/` - web app project
-- `project/glowbom.json` - project manifest
+The contents of `build/client/docs/` belong in the existing hosting release's
+`production/docs/` directory. Merge matching files and preserve the other app
+folders in the combined release. Do not copy `build/server/` or replace the
+hosting project's configuration with a new one.
 
-If you only need some targets, remove the platform folders you do not want:
+Before publishing, verify the docs homepage and direct loads of `/docs/quickstart`,
+`/docs/glowbom-oss`, `/docs/project-book`, and `/docs/desktop`. Check sidebar links,
+search, styles, and mobile navigation. Confirm that the existing `/docs/glowby-oss`
+compatibility route still resolves through the deployment's routing.
 
-- Delete `project/apple/` if you do not need Apple platforms
-- Delete `project/android/` if you do not need Android
-- Delete `project/web/` if you do not need web
-- Keep all of them if you want to build every platform in sync from one Glowbom project
-
-## Project Structure
-
-- `backend/` - Go backend
-- `project/` - bundled default Glowbom project template
-- `web/` - React + Vite web app
-- `legacy/` - older Glowby code kept for historical reference
+A generic static file server does not reproduce Firebase rewrite behavior.
+Preview the combined release with Firebase Hosting before deploying it.

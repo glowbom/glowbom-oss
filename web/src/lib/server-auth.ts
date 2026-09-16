@@ -65,3 +65,19 @@ export function withServerAuthHeaders(headers?: HeadersInit): Headers {
   }
   return resolved;
 }
+
+// Copy the same local token used by API requests, only after a user click.
+export async function copyLocalBackendAccessToken(): Promise<void> {
+  const token = resolveServerToken();
+  if (!token) {
+    throw new Error('No local backend token is available. Restart OSS through its launcher and reload this page.');
+  }
+  if (!navigator.clipboard?.writeText) {
+    throw new Error('Clipboard access is unavailable. Open OSS on localhost or 127.0.0.1 and try again.');
+  }
+  try {
+    await navigator.clipboard.writeText(token);
+  } catch {
+    throw new Error('Could not copy the token. Allow clipboard access for this page and try again.');
+  }
+}

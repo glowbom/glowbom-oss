@@ -42,6 +42,10 @@ What it does:
 5. Waits for the web server to be ready, then opens the browser
 6. If a project path is given, prints the path so you can load it in the UI
 
+Port checks consider only listening servers. Browser or editor connections left
+over from a previous run do not block startup. An existing Glowbom server is
+restarted automatically; an unrecognized server is left running.
+
 Press Ctrl+C to stop both servers.
 
 **Argument parsing:**

@@ -12,6 +12,12 @@ Glowbom OSS helps you build production-ready software with coding agents. It is 
 
 - Make software projects and prototypes production-ready with coding agents
 - Use the providers and models already configured in OpenCode
+- Try Cursor CLI as an optional coding agent for local builds
+
+Image placeholders in downloaded projects support both `glowbomimages:` and
+legacy `glowbyimages:` prefixes. The singular forms `glowbomimage:` and
+`glowbyimage:` also remain supported. They use the same approval and image
+processing flow; existing projects do not need to be renamed.
 
 ## Vision
 
@@ -40,7 +46,7 @@ Glowbom OSS needs these tools available on your `PATH`:
 
 - [Go](https://go.dev/)
 - [Bun](https://bun.sh/)
-- [OpenCode](https://opencode.ai/)
+- [OpenCode](https://opencode.ai/) or [Cursor CLI](https://cursor.com/docs/cli/installation)
 
 Run the built-in environment check and launch Glowbom OSS:
 
@@ -58,6 +64,36 @@ opencode auth login
 Choose OpenAI, then choose ChatGPT Plus/Pro and finish the browser login. You can use the same OpenCode command to configure another provider instead.
 
 Run those commands from the Glowbom OSS repo root, where `backend/` and `web/` live side by side.
+
+## Cursor agent (preview)
+
+Install [Cursor CLI](https://cursor.com/docs/cli/installation) on the computer
+running the backend, then sign in using `cursor-agent login`. Check your login
+with `cursor-agent status`.
+
+In Glowbom OSS, open **Settings**, choose **Cursor (preview)** under **Coding
+agent**, and refresh the checks. Leave the model blank to use Cursor's default,
+or enter a model ID from `cursor-agent models`. Your Cursor account handles access
+and usage. Glowbom does not copy its login tokens.
+
+Glowbom looks for `cursor-agent` on `PATH` and in `~/.local/bin`. If your install
+uses the command `agent`, or a different location, set `GLOWBOM_CURSOR_BIN` to its
+full executable path before starting the backend.
+
+This integration supports streamed build progress, staged instructions and
+attachments, changed-file reporting, history, and continuing a Cursor session.
+Switching agents starts a separate session. Stop cancels the running CLI process
+group on macOS and Linux; edits already made remain in the project.
+
+Build runs Cursor in headless mode with `--force`, allowing file edits and shell
+commands without individual confirmation dialogs. Cursor's local permission and
+workspace trust settings still apply. Open the project in Cursor CLI first if it
+requires workspace trust. Automatic Glowbom media generation and interactive
+OpenCode approval dialogs are not part of Cursor runs. Answer any questions with
+a follow-up build.
+
+The adapter is tested with a simulated CLI. A real Cursor account run still needs
+verification before this preview can be considered dependable.
 
 ## Security Defaults
 
@@ -168,6 +204,8 @@ If you only need some targets, remove the platform folders you do not want:
 - Keep all of them if you want to build every platform in sync from one Glowbom project
 
 ## Project Structure
+
+An optional [Buzz member lookup preview](BUZZ.md) is available in Settings.
 
 - `backend/` - Go backend
 - `cli/` - Glowbom command-line tool

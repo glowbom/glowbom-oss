@@ -3831,6 +3831,10 @@ func openCodeOpenAIDisconnectHandler(w http.ResponseWriter, r *http.Request) {
 // openCodeHealthHandler checks if OpenCode server is running
 func openCodeHealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Query().Get("agentDriver") == "cursor" {
+		cursorHealthHandler(w, r)
+		return
+	}
 
 	driver := GetOpenCodeDriver()
 	ctx := r.Context()
@@ -4124,6 +4128,7 @@ func openCodeAvailableModelsHandler(w http.ResponseWriter, r *http.Request) {
 
 // OpenCodeAgentRequest represents a request for agent operations (refine/verify)
 type OpenCodeAgentRequest struct {
+	AgentDriver                         string   `json:"agentDriver,omitempty"`
 	ProjectPath                         string   `json:"projectPath"`
 	SessionID                           string   `json:"sessionID,omitempty"`    // Reuse existing session if provided
 	Instructions                        string   `json:"instructions,omitempty"` // Optional user instructions
@@ -4194,6 +4199,16 @@ func openCodeRefineHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "projectPath is required", http.StatusBadRequest)
 		return
 	}
+	if req.AgentDriver != "" && req.AgentDriver != "opencode" && req.AgentDriver != "cursor" {
+		http.Error(w, "Unknown agent driver", http.StatusBadRequest)
+		return
+	}
+	if req.AgentDriver == "cursor" {
+		if _, err := cursorExecutable(); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
 
 	// Verify project exists
 	paths := GetProjectPaths(req.ProjectPath)
@@ -4241,6 +4256,13 @@ func openCodeRefineHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[OPENCODE] Warning: failed archiving current_instructions to history: %v", err)
 			}
 		}()
+	}
+	if req.AgentDriver == "cursor" {
+		historyStatus, historySummary = runCursorRefine(w, r, req, effectiveInstructions)
+		return
+	}
+	if strings.HasPrefix(req.SessionID, "cursor-") {
+		req.SessionID = ""
 	}
 
 	if err := ensureOpenCodeServerReady(req.ProjectPath, req.Model, req.OpenAIKey, req.AnthropicKey, req.GeminiKey, req.FireworksKey, req.OpenRouterKey, req.OpenCodeZenKey, req.XaiKey, req.OpenAIAuthMode, req.OpenAIRefreshToken, req.OpenAIExpiresAt); err != nil {
@@ -5435,14 +5457,14 @@ IMPORTANT:
 4. Make improvements while preserving the original design intent
 5. Verify any changes compile/build correctly - report build results and fixes
 6. If you add or change media in prototype/index.html, use placeholders so post-pass can materialize assets:
-   - Images: glowbyimage:<prompt>
+   - Images: glowbomimages:<prompt>
    - Videos: glowbyvideo:<prompt>|from:<image_key>|aspect:<ratio>
    - Audio: glowbyaudio:<prompt>|type:<voice|sound|music>|voice:<voice_id>|model:<model_id>|duration:<seconds>
    - For sound effects, ALWAYS set |type:sound explicitly.
    - If you don't know a valid ElevenLabs model ID, OMIT model:<...>; never use model:standard.
    - If voice/model are omitted, backend applies the user's configured ElevenLabs defaults.
    - For voiceover/background music/sound effects requests, add glowbyaudio placeholders wherever those assets are needed so post-pass can generate and attach them.
-   - If the request is personalization (for example "make this person the main character"), you MUST add/update at least one glowbyimage placeholder that explicitly describes that person so backend post-pass can generate personalized assets.
+   - If the request is personalization (for example "make this person the main character"), you MUST add/update at least one glowbomimages placeholder that explicitly describes that person so backend post-pass can generate personalized assets.
 7. Report progress after each major step (e.g., "Analyzed ios/ code", "Fixed error handling", "Build successful")`, projectRoot)
 
 	// Inject project metadata so the agent knows the app identity
@@ -5513,7 +5535,7 @@ Ensure newly materialized assets from prototype/assets are correctly referenced 
 
 Hard Rules:
 - Do NOT generate new images, videos, or audio in this pass.
-- Do NOT add new glowbyimage, glowbyvideo, or glowbyaudio placeholders.
+- Do NOT add new image placeholders (glowbomimages, glowbyimages, glowbomimage, or glowbyimage), glowbyvideo, or glowbyaudio placeholders.
 - Do NOT rewrite unrelated game/app logic.
 - Keep edits minimal and deterministic; only fix asset placement, references, and render-fit issues.
 
@@ -7631,7 +7653,7 @@ func prototypeContainsMediaPlaceholders(projectPath string) bool {
 	}
 
 	html := string(content)
-	return strings.Contains(html, "glowbyimage:") ||
+	return len(extractImagePlaceholders(html)) > 0 ||
 		strings.Contains(html, "glowbyvideo:") ||
 		strings.Contains(html, "glowbyaudio:")
 }

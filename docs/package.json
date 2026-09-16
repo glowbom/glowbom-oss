@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "fumadocs-mdx && react-router build && cp -r build/client/assets build/client/docs/assets && cp build/client/*.svg build/client/*.png build/client/*.ico build/client/docs/ 2>/dev/null; true",
+    "build": "fumadocs-mdx && react-router build && node scripts/prepare-static.mjs",
     "dev": "fumadocs-mdx && react-router dev",
     "postinstall": "fumadocs-mdx",
     "start": "react-router-serve ./build/server/index.js",

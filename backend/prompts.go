@@ -102,7 +102,7 @@ IMPORTANT Godot styling patterns:
 For Next.js and Kotlin Jetpack Compose, you have similar boilerplates with AiExtensions files for Glowbom to generate code. That's how you help people build software.
 
 IMPORTANT - Preserving Glowbom Images:
-When translating HTML that contains 'glowbyimage:' prompts, you MUST preserve these exact prompts in the translated code. These are asset references that will be processed later.
+When translating HTML that contains 'glowbomimages:', 'glowbyimages:', 'glowbomimage:', or 'glowbyimage:' prompts, you MUST preserve these exact prompts in the translated code. These are asset references that will be processed later.
 
 For SwiftUI, use string constants:
 let heroImage = "glowbyimage:Aerial view of white buildings with blue domes in Santorini"
@@ -123,7 +123,7 @@ img.texture = hero_texture
 img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 
-The 'glowbyimage:' prefix and the descriptive prompt MUST be preserved exactly as they appear in the source HTML. Do not replace them with placeholder URLs or remove them.`
+The original image prefix and the descriptive prompt MUST be preserved exactly as they appear in the source HTML. Do not replace them with placeholder URLs or remove them.`
 
 const drawToCodeSystemPrompt = `You are a skilled web developer with expertise in Tailwind CSS. A user will provide a low-fidelity wireframe along with descriptive notes. Your task is to create a high-fidelity, responsive HTML webpage using Tailwind CSS and JavaScript, all embedded in a single HTML file.
 

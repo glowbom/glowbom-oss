@@ -22,6 +22,16 @@ func main() {
 	mux.HandleFunc("/image", generateImageHandler)
 	mux.HandleFunc("/audio", generateAudioHandler)
 	mux.HandleFunc("/audio/voices", listElevenLabsVoicesHandler)
+	mux.Handle("/buzz/members", newBuzzMembersHandler(runBuzzRead))
+	buzzSession := newBuzzSession(runBuzzRead)
+	mux.Handle("/buzz/session", buzzSession)
+	mux.Handle("/buzz/session/refresh", buzzSession)
+	mux.Handle("/buzz/session/avatar", buzzSession)
+	mux.Handle("/buzz/session/messages", buzzSession)
+	mux.Handle("/buzz/session/speech", buzzSession)
+	mux.Handle("/buzz/session/profiles", buzzSession)
+	mux.Handle("/buzz/session/voices", buzzSession)
+	mux.Handle("/buzz/session/voice-preview", buzzSession)
 
 	// Veo video generation endpoints
 	mux.HandleFunc("/generateVeoVideo", generateVeoVideoHandler)

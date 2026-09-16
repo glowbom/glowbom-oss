@@ -1,106 +1,169 @@
 ---
 title: Glowbom OSS
-description: Make your Glowbom project production-ready with AI coding agents, locally.
+description: Build with local project files, OpenCode, and an open React interface.
 ---
 
-Glowbom OSS is the free, open source part of Glowbom. It takes a Glowbom project and makes it production-ready using AI coding agents. Everything runs on your machine. It works with Glowbom projects and can also work with other project structures.
+Glowbom OSS is the open local workflow behind Glowbom. A Go backend and a React
+interface help you load a project, work with coding agents, and review results.
+It works with Glowbom projects and can also work with other project structures.
+
+The software is free to use. Model providers may charge for their services.
+A Glowbom account is not required for the local workflow.
+
+## Requirements
+
+Install these tools and make sure they are available in your terminal:
+
+- [Git](https://git-scm.com/downloads) to get the repository.
+- [Go](https://go.dev/doc/install) to run the backend.
+- [Bun](https://bun.sh/) to run the web interface.
+- [OpenCode](https://opencode.ai/docs/) for coding agents and model access.
+
+On macOS and Linux, use your regular terminal. On Windows, use WSL with the tools
+installed inside your Linux environment for this setup.
 
 ## Install the CLI
 
-The fastest way to get started:
+Install the Glowbom CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/glowbom/glowbom-oss/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/glowbom/glowbom-oss/main/scripts/install.sh | sudo sh
 ```
 
-### Requirements
+This installs the CLI in `/usr/local/bin` and may ask for your administrator
+password. Then get the repository below. The installer does not install the
+required development tools.
 
-- [Go](https://go.dev/)
-- [Bun](https://bun.sh/)
-- [OpenCode](https://opencode.ai/)
+Alternatively, download a matching binary from the
+[GitHub releases](https://github.com/glowbom/glowbom-oss/releases) page.
 
-Run `glowbom doctor` to check that everything is installed.
+## Get the repository
 
-## Quickstart
+The CLI needs a checkout containing `backend/` and `web/` side by side:
 
 ```bash
-glowbom start
+git clone https://github.com/glowbom/glowbom-oss.git
+cd glowbom-oss
+glowbom doctor
 ```
 
-This starts the backend and web UI, then opens the browser. Press Ctrl+C to stop.
+If you already have a checkout, open that folder instead of cloning it again.
+Resolve missing dependencies reported by `doctor` before continuing.
 
-To point at a specific project folder:
+### Build the CLI from source
+
+If a release binary is unavailable for your machine, build it from the checkout:
 
 ```bash
-glowbom start /path/to/project
+cd cli
+go build -o ../glowbom .
+cd ..
+./glowbom doctor
+./glowbom start
 ```
 
-### Manual start
+Use `./glowbom` for the remaining commands when using this source build.
 
-If you prefer to run each piece yourself:
+## Connect a model provider
 
-```bash
-# Terminal 1: backend
-cd backend
-go run .
-# runs on http://localhost:4569
-
-# Terminal 2: web UI
-cd web
-bun install
-bun run dev
-# runs on http://localhost:4572
-```
-
-## How it works
-
-1. **Load a project.** Point at your Glowbom project folder (or any other project) from the UI or the CLI.
-2. **Check your OpenCode setup.** Glowbom OSS uses the providers and models already available in OpenCode.
-3. **Add build instructions.** Optionally attach local files for extra context (up to 40 MB each).
-4. **Start a build.** The agent works through your project while you watch live logs.
-5. **Answer questions.** The agent may ask for input or permission during the run.
-6. **Open results.** Use the IDE buttons to open outputs in Xcode, Android Studio, VS Code, or Finder.
-
-## Connect a provider
-
-Glowbom OSS keeps provider login and model configuration in OpenCode. We recommend signing in to ChatGPT through OpenCode:
+Configure your provider through OpenCode:
 
 ```bash
 opencode auth login
 ```
 
-Choose OpenAI, then choose ChatGPT Plus/Pro and finish the browser login. You can use the same command to configure another provider.
+Choose an available provider and follow its sign-in instructions. Authentication
+methods and model availability depend on the provider and your installed
+OpenCode version. See [OpenCode provider setup](https://opencode.ai/docs/providers/).
 
-## Models and providers
+Glowbom OSS uses that configuration; it does not require you to enter provider
+credentials into a separate Glowbom account. Hosted models send requests over
+the network. Local models require a compatible configuration and enough hardware.
 
-Glowbom OSS reads the providers and models available in your local OpenCode setup. This keeps the project compatible with new model releases without maintaining a separate model catalog. You can keep OpenCode's configured default or choose another available model in Glowbom OSS.
+## Start the local workflow
 
-## Supported models
+From the repository root:
 
-The model list comes directly from OpenCode. Provider availability depends on your OpenCode version and configuration.
+```bash
+glowbom start
+```
+
+The CLI starts the local backend and web interface, then opens your browser.
+If it does not open automatically, visit `http://127.0.0.1:4572`.
+Press Ctrl+C in the terminal to stop the stack.
+
+The backend uses port `4569`; the browser interface uses port `4572`.
+The optional command below prints a project path hint. You still load the project
+in the interface; it is not an automatic import or cloud download:
+
+```bash
+glowbom start /absolute/path/to/project
+```
+
+## Start with a project
+
+Load your local project folder in the interface, choose an available model, and
+describe one change. Review the agent output and test the relevant platform
+before accepting the result as ready to ship.
+
+The repository includes a starter in `project/`. Copy it to your own working
+folder before modifying it:
+
+```text
+project/
+  glowbom.json
+  prototype/
+  apple/
+  android/
+  web/
+```
+
+Keep the manifest and assets with the project. You can remove platform folders
+you do not need. Building Apple, Android, and web targets requires their respective
+tools; installing the CLI does not install Xcode or Android Studio.
 
 ## Security defaults
 
-- The backend binds to `127.0.0.1` only, so nothing is exposed to the network.
-- A random auth token is generated each time the backend starts.
-- Credentials stay in memory and are not written to disk.
-- All traffic between the web UI and backend goes through a local Vite proxy.
+When launched through `glowbom start`:
 
-Use `glowbom start --show-local-auth` to print the token if you need it for debugging.
+- The local services bind to loopback (`127.0.0.1`).
+- The backend requires a bearer token, generated for the run unless configured.
+- The OpenCode bridge uses a server password.
+- The local web proxy forwards the backend credential.
 
-## Project structure
+Do not expose these development services through a public network tunnel without
+separately designing remote access controls. OpenCode manages its own provider
+credentials; local service credentials and provider credentials are different.
 
-```
-glowbom-oss/
-├── backend/    Go backend
-├── cli/        glowbom CLI tool
-├── web/        React + Vite web UI
-├── docs/       this documentation site
-├── project/    bundled default Glowbom project
-├── scripts/    install script
-└── legacy/     older Glowby code kept for historical reference
-```
+`glowbom start --show-local-auth` prints local access credentials for debugging.
+Treat that output as sensitive and leave it out of screenshots and issue reports.
 
-## Windows and Linux
+## Troubleshooting
 
-On Windows, Glowbom OSS runs under WSL. Linux works natively. The folder picker falls back to a manual path input when no native picker is available.
+**Command not found:** restart your terminal and check the tool's install directory
+is in PATH. Run `go version`, `bun --version`, and `opencode --version` to identify
+which dependency is missing.
+
+**Checkout not found:** run `glowbom start` from the repository root, where
+`backend/` and `web/` are siblings. A project export alone is not that checkout.
+
+**No models or sign-in failure:** check your OpenCode provider configuration and
+account access before retrying in Glowbom OSS.
+
+**Project folder picker unavailable:** enter the absolute path manually when the
+interface offers a path field. On Windows, use a path visible inside WSL.
+
+## Project memory and account access
+
+The [Project Book](./project-book) is the direction for preserving intent and
+history alongside code. Its integrated workflow is under development.
+
+Glowbom account login, cloud generation transfer, and spending Glowbom credits
+from the CLI are planned work, not commands in the current CLI. Continue using
+local files and your OpenCode provider configuration today.
+
+## Earlier names
+
+Glowbom OSS was previously called Glowby OSS. Existing compatibility aliases may
+remain in the source. Use `glowbom start` for new instructions; `glowbom code` is
+a deprecated alias.

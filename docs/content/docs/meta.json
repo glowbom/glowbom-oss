@@ -1,5 +1,12 @@
 {
   "title": "Glowbom Docs",
   "root": true,
-  "pages": ["index", "glowbom", "quickstart", "glowbom-oss", "desktop"]
+  "pages": [
+    "index",
+    "glowbom",
+    "quickstart",
+    "glowbom-oss",
+    "project-book",
+    "desktop"
+  ]
 }

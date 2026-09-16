@@ -49,16 +49,16 @@ p {
 }
 
 .topbar {
-  height: 80px;
+  height: 88px;
   border-bottom: 1px solid #eef4f1;
   background: #ffffff;
 }
 
 .topbar-inner {
-  max-width: 1420px;
+  max-width: 1440px;
   height: 100%;
   margin: 0 auto;
-  padding: 0 22px;
+  padding: 0 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,7 +73,20 @@ p {
 .topbar-logo img {
   width: 118px;
   height: 29px;
-  margin-top: 8px;
+  object-fit: contain;
+}
+
+.topbar-product {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid #d9ddda;
+  color: #858985;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.topbar-logo {
+  text-decoration: none;
 }
 
 .topbar-links {
@@ -96,8 +109,14 @@ p {
   text-decoration: underline;
 }
 
-.topbar-cta {
-  margin-left: 2px;
+.button.topbar-cta {
+  margin-left: 8px;
+  padding: 13px 24px;
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .brand-header {
@@ -1407,18 +1426,29 @@ textarea.input {
 
 @media (max-width: 880px) {
   .topbar {
-    height: 72px;
+    height: auto;
   }
 
   .topbar-inner {
-    padding: 0 12px;
+    padding: 16px;
+    flex-wrap: wrap;
+    gap: 16px 8px;
   }
 
   .topbar-links {
-    display: none;
+    order: 3;
+    width: 100%;
+    margin: 0;
+    gap: 12px 20px;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
-  .topbar-cta {
+  .topbar-links a {
+    font-size: 14px;
+  }
+
+  .button.topbar-cta {
     padding: 9px 13px;
     font-size: 0.82rem;
   }
@@ -1461,4 +1491,87 @@ textarea.input {
   .composer-toolbar-actions {
     justify-content: flex-start;
   }
+}
+.buzz-panel {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.buzz-panel summary {
+  cursor: pointer;
+}
+
+.buzz-panel .field-label {
+  margin-top: 12px;
+}
+
+.buzz-connection-status {
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.buzz-roster-heading {
+  margin-top: 16px;
+  justify-content: space-between;
+}
+
+.buzz-members {
+  max-height: 240px;
+  overflow-y: auto;
+  padding-left: 0;
+  list-style: none;
+}
+
+.buzz-members li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+.buzz-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #e1eee8;
+  color: #315749;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.buzz-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.buzz-members small {
+  display: block;
+}
+
+.buzz-channel-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.buzz-id-copy {
+  display: block;
+  padding: 0;
+  margin-top: 3px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.buzz-id-copy:hover {
+  text-decoration: underline;
 }
