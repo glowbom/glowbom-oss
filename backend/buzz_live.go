@@ -349,7 +349,10 @@ func buzzSynthesize(ctx context.Context, key, text, voiceID string) ([]byte, err
 }
 
 func (l *buzzLive) accept(evt nostr.Event, channel string, start int64, live bool) {
-	if evt.Kind != 9 || evt.CreatedAt < nostr.Timestamp(start) || int64(evt.CreatedAt) > time.Now().Unix()+5 || len(evt.Content) > 32768 || strings.TrimSpace(evt.Content) == "" {
+	// Sender clocks can run ahead of this computer. Allow the same two-minute
+	// tolerance as reconnect catch-up, while still rejecting far-future events.
+	now := time.Now().Unix()
+	if evt.Kind != 9 || evt.CreatedAt < nostr.Timestamp(start) || int64(evt.CreatedAt) > now+120 || len(evt.Content) > 32768 || strings.TrimSpace(evt.Content) == "" {
 		return
 	}
 	found := false
@@ -374,7 +377,7 @@ func (l *buzzLive) accept(evt nostr.Event, channel string, start int64, live boo
 		return
 	}
 	// The reconnect window is two minutes. Older deliveries cannot be replayed.
-	cutoff := time.Now().Unix() - 120
+	cutoff := now - 120
 	if int64(evt.CreatedAt) < cutoff {
 		return
 	}

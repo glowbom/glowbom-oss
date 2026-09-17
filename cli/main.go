@@ -17,6 +17,18 @@ Usage:
   glowbom start [project-path] [--show-local-auth]
                                 Start Glowbom OSS from this checkout and open the browser
   glowbom doctor                Check environment dependencies
+  glowbom login [--no-browser] [--device-auth]
+                              Connect your optional Glowbom account
+  glowbom account [--refresh]   Show your hosted account allowance
+  glowbom logout               Remove this computer's account credentials
+  glowbom generate-image [options] "prompt"
+                              Generate and save an image, with optional references
+  glowbom pull [--output NEW_DIRECTORY]
+                              Download your saved project into a new local folder
+  glowbom template [--output NEW_DIRECTORY]
+                              Download a clean starter project without signing in
+  glowbom export [--output NEW_DIRECTORY]
+                              Combine your saved generation and starter into one project
   glowbom version               Print version info
   glowbom help                  Show this help
 
@@ -41,6 +53,16 @@ func run(args []string) int {
 	}
 
 	switch args[0] {
+	case "login", "account", "logout":
+		return runAccountCommand(args[0], args[1:])
+	case "generate-image":
+		return runImageCommand(args[1:])
+	case "pull":
+		return runPullCommand(args[1:])
+	case "template":
+		return runTemplateCommand(args[1:])
+	case "export":
+		return runExportCommand(args[1:])
 	case "start":
 		return runStart(args[1:])
 	case "code":

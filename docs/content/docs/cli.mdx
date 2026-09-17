@@ -1,0 +1,141 @@
+---
+title: Glowbom CLI
+description: Download a starter, connect your account, and export saved work into a complete project folder.
+---
+
+The CLI can start the local workflow, download a clean starter, and export work
+from your Glowbom account into a complete project folder. These commands are implemented in the current
+source. If your installed release does not recognize one, follow the
+[source build instructions](./glowbom-oss#build-the-cli-from-source).
+
+## Download a clean starter
+
+No Glowbom account is needed:
+
+```bash
+glowbom template
+glowbom template --output ~/Downloads/my-new-project
+```
+
+The command downloads the current public starter from
+[audio.glowbom.com/starter.zip](https://audio.glowbom.com/starter.zip) and checks
+the ZIP before extracting it. The folder includes Apple, Android, and web projects,
+their manifest, and instructions. No downloaded code runs, and the command does
+not install dependencies or development tools.
+
+The shared download can be replaced without rebuilding the CLI. Each run requests
+the starter again. Cloudflare may serve a cached copy until its cache expires or
+is cleared, so an immediate update also needs that URL's cache purged.
+
+Without `--output`, it creates a unique `glowbom-template-*` folder in your current
+directory. With `--output`, choose a new folder inside an existing parent.
+Existing files and folders are never replaced.
+
+## Connect your account
+
+```bash
+glowbom login
+glowbom account --refresh
+```
+
+Login opens Glowbom in your browser. Sign in and approve the connection, then
+return to your terminal. Credentials use your computer's keyring by default.
+`account` displays your subscription and remaining image generation allowance.
+
+For a remote terminal, use `glowbom login --device-auth --no-browser` and open
+the printed link on another device. Only approve a login you started.
+
+## Pull your saved project
+
+Finish saving in Glowbom, then run:
+
+```bash
+glowbom pull --output ~/Downloads/my-saved-project
+```
+
+This downloads your saved manifest, prompt, source exports, and any included
+drawing or icon into a new folder. Without `--output`, the folder is named
+`glowbom-project-*` in your current directory.
+
+`pull` includes only the saved generation files. To add the starter's platform
+projects around those files, use `export`.
+
+## Export a complete project folder
+
+Sign in with `glowbom login`, then finish saving your project in Glowbom before
+running:
+
+```bash
+glowbom export
+glowbom export --output ~/Downloads/my-exported-project
+```
+
+The command combines your account's current saved generation with the public
+[starter ZIP](https://audio.glowbom.com/starter.zip) in one folder. It retains the
+original exports, prompt, and any saved drawing or icon, and places available
+generated code into the starter projects:
+
+| Saved output | Destination |
+| --- | --- |
+| Processed HTML, with raw HTML as the fallback | `prototype/index.html` |
+| SwiftUI | `apple/Custom/AiExtensions.swift` |
+| Kotlin | `android/app/src/main/java/com/glowbom/custom/AiExtensions.kt` |
+| Next.js | `web/src/app/components/AiExtensions.tsx` |
+
+The CLI first downloads the saved generation using your account token, then
+downloads the public starter without sending that token or cookies. It validates
+both ZIPs and combines them on your computer. The result is one extracted folder.
+
+The platform copies receive missing imports, package declarations, or the
+Next.js client directive, and supported disabled generated-screen declarations
+are enabled. Original exports remain unchanged. A saved icon is copied to
+`icon.png`, `web/src/app/icon.png`, and `web/public/icon.png`.
+The combined `glowbom.json` keeps your saved metadata and the starter's platform
+targets. Starter sample prototype assets and stale sample dates are removed.
+
+A nonempty HTML prototype is required. If a platform has no saved generated code,
+its starter files remain. Export does
+not generate missing code, run downloaded code, install dependencies, or build
+an app. Open the folder in your development tools or Glowbom OSS to continue.
+
+By default, the destination is a unique `glowbom-export-*` folder in your current
+directory. `--output` selects a new folder whose parent already exists. Existing
+files, directories, and symlinks are never overwritten, even if the destination
+directory is empty. Export does not synchronize later changes or retrieve unsaved
+browser edits.
+
+Choose the command for the files you need:
+
+| Command | Result | Login required |
+| --- | --- | --- |
+| `glowbom template` | Clean starter projects | No |
+| `glowbom pull` | Your saved generation files | Yes |
+| `glowbom export` | Starter projects with your saved generated files included | Yes |
+
+The new `export` command is available in source; a packaged release remains
+pending. Build the updated CLI, or run `go run . export`
+from its `cli` directory. It reuses the existing `GET /project` API and public
+starter URL, so no Firebase Functions or Cloudflare Worker redeployment is needed.
+Use `glowbom export --help` for the options.
+
+## Generate images
+
+```bash
+glowbom generate-image "A friendly robot" --output robot.png
+glowbom generate-image "Combine this character and setting" --ref character.png --ref garden.jpg --source nano-banana --output combined.png
+```
+
+Image generation uses your Glowbom allowance. Results save in your current
+directory unless you choose another output path. Repeat `--ref` to use multiple
+local images or HTTPS image URLs. Run `glowbom generate-image --help` for all
+options.
+
+## Sign out
+
+```bash
+glowbom logout
+```
+
+Logout removes the CLI credentials on this computer. Your browser remains
+signed in. Use `glowbom help` to see all commands, including `start` and `doctor`
+for the [local Glowbom OSS workflow](./glowbom-oss).

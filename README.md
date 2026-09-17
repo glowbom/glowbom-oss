@@ -65,6 +65,8 @@ Choose OpenAI, then choose ChatGPT Plus/Pro and finish the browser login. You ca
 
 Run those commands from the Glowbom OSS repo root, where `backend/` and `web/` live side by side.
 
+Optional hosted account commands are described in the [CLI guide](cli/README.md). The local workflow does not require a Glowbom account.
+
 ## Cursor agent (preview)
 
 Install [Cursor CLI](https://cursor.com/docs/cli/installation) on the computer
@@ -181,6 +183,24 @@ bun run dev
 ```
 
 The web app runs on `http://localhost:4572`.
+
+## Bring a saved Glowbom project to your computer
+
+With the CLI built from the current source, sign in and export your saved project:
+
+```bash
+glowbom login
+glowbom export --output ~/Downloads/my-glowbom-project
+```
+
+Finish saving in Glowbom before exporting and choose a new destination folder.
+The command combines your saved generation with the current public starter,
+placing available HTML, SwiftUI, Kotlin, and Next.js code in its platform
+locations. It preserves original exports and existing local folders.
+
+Use `glowbom pull` for only the saved generation or `glowbom template` for a
+clean starter without signing in. See the [CLI guide](cli/README.md#export-a-complete-project-folder)
+for options, file placement, and how the export is assembled.
 
 ## Using the Bundled Default Project
 

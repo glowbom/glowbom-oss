@@ -43,6 +43,35 @@ func TestBuzzLiveDedupAndScope(t *testing.T) {
 		t.Fatal("late event survived disconnect")
 	}
 }
+
+func TestBuzzLiveClockSkew(t *testing.T) {
+	now := time.Now().Unix()
+	for _, tc := range []struct {
+		name   string
+		offset int64
+		live   bool
+		want   int
+	}{
+		{"current message", 0, true, 1},
+		{"sender clock slightly ahead", 10, true, 1},
+		{"catch-up stays silent", 10, false, 1},
+		{"far future rejected", 180, true, 0},
+		{"before listener start rejected", -10, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := newBuzzLive()
+			defer l.close()
+			l.accept(liveEvent(t, "clock skew", "channel", now+tc.offset), "channel", now, tc.live)
+			if len(l.messages) != tc.want {
+				t.Fatalf("got %d messages, want %d", len(l.messages), tc.want)
+			}
+			if tc.want > 0 && l.messages[0].Live != tc.live {
+				t.Fatal("clock tolerance changed speech eligibility")
+			}
+		})
+	}
+}
+
 func liveRequest(s *buzzSession, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodPost, "/buzz/session/speech", strings.NewReader(body))
 	w := httptest.NewRecorder()
