@@ -20,6 +20,27 @@ On a remote server, use `glowbom login --device-auth --no-browser` and open the 
 
 `glowbom account` displays your subscription category and remaining generation allowance. Credentials refresh automatically when needed; use `glowbom account --refresh` to refresh immediately. `glowbom logout` removes the credentials from the selected store on this machine. Your browser and other machines remain signed in.
 
+### Structured account status
+
+`glowbom account --json` returns a versioned status for local applications, with
+no tokens or generation balances. The normal account command's text output is
+unchanged. `--refresh` can be combined with `--json`.
+
+```json
+{"version":1,"status":"signed_in","uid":"example-user","email":"person@example.com","subscriptionStatus":"premium"}
+```
+
+`status` is `signed_in`, `signed_out`, or `unavailable`. Signed-in responses include
+the verified identity and hosted subscription category. A verified account whose
+billing record is not ready returns `subscriptionStatus: "unknown"` and
+`code: "account_not_ready"`. Missing credentials or a rejected session return
+`signed_out`; credential-store and network failures return `unavailable`, without
+identity fields. Exit status is zero for signed-in or signed-out results and one
+for unavailable results. Check the JSON version and status before using the fields.
+
+The optional [local account bridge](../backend/ACCOUNT.md) lets Glowbom Live start
+browser login and read this status through the authenticated OSS backend.
+
 ## Download a clean starter
 
 Start a new project without signing in:

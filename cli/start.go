@@ -129,6 +129,10 @@ func runStart(args []string) int {
 		"GLOWBY_SERVER_TOKEN="+serverToken,
 		"OPENCODE_SERVER_PASSWORD="+opencodePassword,
 	)
+	// Use this launcher for account commands, including source builds outside PATH.
+	if executable, err := os.Executable(); err == nil {
+		backendEnv = append(backendEnv, "GLOWBOM_CLI_BIN="+executable)
+	}
 	webEnv := append(
 		os.Environ(),
 		"GLOWBOM_BIND_HOST=127.0.0.1",

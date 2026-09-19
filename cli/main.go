@@ -19,7 +19,8 @@ Usage:
   glowbom doctor                Check environment dependencies
   glowbom login [--no-browser] [--device-auth]
                               Connect your optional Glowbom account
-  glowbom account [--refresh]   Show your hosted account allowance
+  glowbom account [--refresh] [--json]
+                              Show your allowance or structured account status
   glowbom logout               Remove this computer's account credentials
   glowbom generate-image [options] "prompt"
                               Generate and save an image, with optional references

@@ -14,6 +14,10 @@ func main() {
 	mux.HandleFunc("/", glowbomBackendHomeHandler)
 	mux.HandleFunc("/favicon.png", glowbomFaviconHandler)
 	mux.HandleFunc("/logo-svg.svg", glowbomLogoSVGHandler)
+	account := newAccountBridge(runAccountCLI)
+	for _, route := range []string{"/account/status", "/account/login", "/account/login/cancel", "/account/logout"} {
+		mux.Handle(route, account)
+	}
 
 	mux.HandleFunc("/chatWithAI", chatWithAIHandler)
 	mux.HandleFunc("/webSearch", webSearchHandler)

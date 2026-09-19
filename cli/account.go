@@ -344,25 +344,27 @@ func (c *accountClient) refresh(ctx context.Context, credentials accountCredenti
 	return updated, c.store.Save(updated)
 }
 
-func (c *accountClient) account(ctx context.Context, forceRefresh bool) error {
+type accountSummary struct {
+	SubscriptionStatus string  `json:"subscriptionStatus"`
+	RemainingUSD       float64 `json:"remainingUsd"`
+	AllowanceUSD       float64 `json:"allowanceUsd"`
+}
+
+func (c *accountClient) readAccount(ctx context.Context, forceRefresh bool) (accountCredentials, accountSummary, error) {
+	var result accountSummary
 	credentials, err := c.store.Load()
 	if err != nil {
-		return err
+		return credentials, result, err
 	}
 	if !credentials.valid() {
-		return errors.New("saved sign-in is invalid; run glowbom login again")
+		return credentials, result, errAccountInvalid
 	}
 	refreshed := forceRefresh || credentials.ExpiresAt <= time.Now().Add(time.Minute).Unix()
 	if refreshed {
 		credentials, err = c.refresh(ctx, credentials)
 		if err != nil {
-			return err
+			return credentials, result, err
 		}
-	}
-	var result struct {
-		SubscriptionStatus string  `json:"subscriptionStatus"`
-		RemainingUSD       float64 `json:"remainingUsd"`
-		AllowanceUSD       float64 `json:"allowanceUsd"`
 	}
 	err = c.request(ctx, "/account", credentials.IDToken, nil, &result)
 	var apiError *accountAPIError
@@ -372,6 +374,14 @@ func (c *accountClient) account(ctx context.Context, forceRefresh bool) error {
 			err = c.request(ctx, "/account", credentials.IDToken, nil, &result)
 		}
 	}
+	if err == nil && result.SubscriptionStatus == "" {
+		err = errors.New("Glowbom returned an unexpected account response")
+	}
+	return credentials, result, err
+}
+
+func (c *accountClient) account(ctx context.Context, forceRefresh bool) error {
+	credentials, result, err := c.readAccount(ctx, forceRefresh)
 	if err != nil {
 		return err
 	}
@@ -382,13 +392,14 @@ func (c *accountClient) account(ctx context.Context, forceRefresh bool) error {
 
 func runAccountCommand(command string, args []string) int {
 	flags := flag.NewFlagSet("glowbom "+command, flag.ContinueOnError)
-	noBrowser, deviceAuth, forceRefresh := false, false, false
+	noBrowser, deviceAuth, forceRefresh, jsonOutput := false, false, false, false
 	if command == "login" {
 		flags.BoolVar(&noBrowser, "no-browser", false, "Print the login link without opening a browser")
 		flags.BoolVar(&deviceAuth, "device-auth", false, "Use a terminal code and polling for a remote machine")
 	}
 	if command == "account" {
 		flags.BoolVar(&forceRefresh, "refresh", false, "Refresh the session before reading the allowance")
+		flags.BoolVar(&jsonOutput, "json", false, "Print versioned account status without credentials")
 	}
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -401,6 +412,21 @@ func runAccountCommand(command string, args []string) int {
 		return 2
 	}
 	c, err := newAccountClient()
+	if jsonOutput {
+		status := accountStatusJSON{Version: 1, Status: "unavailable", Code: "account_unavailable"}
+		if err == nil {
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer cancel()
+			status = c.accountStatus(ctx, forceRefresh)
+		}
+		if json.NewEncoder(os.Stdout).Encode(status) != nil {
+			return 1
+		}
+		if status.Status == "unavailable" {
+			return 1
+		}
+		return 0
+	}
 	if err == nil {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()

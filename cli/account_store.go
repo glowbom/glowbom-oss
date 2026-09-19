@@ -14,6 +14,9 @@ import (
 
 const credentialService = "Glowbom CLI"
 
+var errAccountSignedOut = errors.New("you are not signed in; run glowbom login")
+var errAccountInvalid = errors.New("saved sign-in is invalid; run glowbom login again")
+
 type credentialStore struct {
 	key  string
 	file string
@@ -51,7 +54,7 @@ func (s *credentialStore) Load() (accountCredentials, error) {
 	if s.file == "" {
 		text, err := keyring.Get(credentialService, s.key)
 		if errors.Is(err, keyring.ErrNotFound) {
-			return value, errors.New("you are not signed in; run glowbom login")
+			return value, errAccountSignedOut
 		}
 		if err != nil {
 			return value, errors.New("could not read the system keyring; unlock it and retry")
@@ -125,8 +128,11 @@ func (s *credentialStore) Delete() error {
 
 func privateCredentialPath(path string, allowMissing bool) error {
 	dir, err := os.Lstat(filepath.Dir(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return errAccountSignedOut
+	}
 	if err != nil {
-		return errors.New("you are not signed in; run glowbom login")
+		return errors.New("could not read the private credential directory")
 	}
 	if !dir.IsDir() || dir.Mode()&os.ModeSymlink != 0 || dir.Mode().Perm()&0o077 != 0 {
 		return errors.New("the credential directory must be private (mode 0700) and must not be a symlink")
@@ -136,7 +142,7 @@ func privateCredentialPath(path string, allowMissing bool) error {
 		if allowMissing {
 			return nil
 		}
-		return errors.New("you are not signed in; run glowbom login")
+		return errAccountSignedOut
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
 		return errors.New("the credential file must be private (mode 0600) and must not be a symlink")
