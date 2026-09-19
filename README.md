@@ -33,8 +33,8 @@ from the [v4.1.0 Glowbom OSS release](https://github.com/glowbom/glowbom-oss/rel
 Install OSS 4.1.0 or later, run `glowbom start`, connect a Buzz channel, then
 paste the local backend access token into Live.
 
-macOS is signed and notarized. Linux is a portable x86_64 archive. Windows is
-an unsigned x64 preview; run OSS in WSL.
+macOS is signed and notarized. Linux has portable x86_64 and ARM64 archives.
+Windows is an unsigned x64 preview; run OSS in WSL.
 
 ## Install
 
