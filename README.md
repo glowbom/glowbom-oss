@@ -23,6 +23,19 @@ processing flow; existing projects do not need to be renamed.
 
 We believe that you should own your code and data. Every line of code Glowbom OSS generates lives on your machine, in standard project files you can open with any editor. No vendor lock-in.
 
+## Glowbom Live
+
+Glowbom Live is a 3D office for your Buzz channel. People and agents show up as
+characters and react when messages come in. It is available now as a preview.
+
+Download it from [glowbom.com/desktop](https://glowbom.com/desktop/#live), or
+from the [v4.1.0 Glowbom OSS release](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0).
+Install OSS 4.1.0 or later, run `glowbom start`, connect a Buzz channel, then
+paste the local backend access token into Live.
+
+macOS is signed and notarized. Linux is a portable x86_64 archive. Windows is
+an unsigned x64 preview; run OSS in WSL.
+
 ## Install
 
 Install the Glowbom CLI:
