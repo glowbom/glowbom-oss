@@ -98,7 +98,7 @@ go vet ./...
 
 ## Rename compatibility
 
-`glowbom code` remains available as a deprecated alias for `glowbom start`. Release archives also include the old `glowby` binary name for a transition period. Existing `GLOWBY_*` configuration variables remain accepted, but new setup should use `GLOWBOM_*`.
+`glowbom code` remains available as a deprecated alias for `glowbom start`. Existing `GLOWBY_*` configuration variables remain accepted, but new setup should use `GLOWBOM_*`. Release archives ship only the `glowbom` binary.
 
 ## Releases
 

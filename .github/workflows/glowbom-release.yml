@@ -44,7 +44,7 @@ jobs:
             -o "glowbom-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
             .
 
-      - name: Create current and compatibility archives
+      - name: Create archives
         run: |
           if [ -d oss/cli ]; then
             CLI_DIR="oss/cli"
@@ -56,13 +56,9 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then
             cp "${BIN}.exe" glowbom.exe
             zip "${BIN}.zip" glowbom.exe
-            cp "${BIN}.exe" glowby.exe
-            zip "glowby-${{ matrix.goos }}-${{ matrix.goarch }}.zip" glowby.exe
           else
             cp "${BIN}" glowbom
             tar czf "${BIN}.tar.gz" glowbom
-            cp "${BIN}" glowby
-            tar czf "glowby-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" glowby
           fi
 
       - name: Upload artifact
@@ -72,12 +68,8 @@ jobs:
           path: |
             oss/cli/glowbom-*.tar.gz
             oss/cli/glowbom-*.zip
-            oss/cli/glowby-*.tar.gz
-            oss/cli/glowby-*.zip
             cli/glowbom-*.tar.gz
             cli/glowbom-*.zip
-            cli/glowby-*.tar.gz
-            cli/glowby-*.zip
 
   release:
     needs: build
