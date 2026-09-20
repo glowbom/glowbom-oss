@@ -83,6 +83,22 @@ Run those commands from the Glowbom OSS repo root, where `backend/` and `web/` l
 
 Optional hosted account commands are described in the [CLI guide](cli/README.md). The local workflow does not require a Glowbom account.
 
+## Jev
+
+[Jev](extras/jev/README.md) is an optional tool your coding agent can
+ask for help with small decisions, such as whether build results look healthy.
+You give it the facts, a question, and clear choices. This can save reasoning
+time while your main agent focuses on building your app.
+
+For Glowbom, this is useful when an agent needs to decide whether a build is
+ready or needs another fix. Jev can judge the test results and other evidence
+the agent provides, helping it choose the next step as you improve your app.
+
+The current Jev integration works through OpenCode. It uses OpenCode Zen's free
+Jev endpoint, with no separate Jev API key.
+See the [setup guide](extras/jev/README.md) to install it and try it with any
+OpenCode model that supports tool calls.
+
 ## Cursor agent (preview)
 
 Install [Cursor CLI](https://cursor.com/docs/cli/installation) on the computer
