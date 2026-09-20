@@ -1,23 +1,46 @@
-# Glowbom OSS Jev integration bundle
+# Jev for Glowbom OSS
 
-This archive contains repo-ready files for adding Jev as an OpenCode custom tool in Glowbom OSS.
+Jev can help your OpenCode coding model make small, structured decisions while it works.
 
-Copy the contents of this archive into the root of `glowbom/glowbom-oss`.
+## 1. Install Jev as an OpenCode tool
 
-Included:
-
-- `.opencode/tools/jev.ts`
-- `scripts/install-jev-tool.sh`
-- `scripts/test-jev.mjs`
-- `docs/jev/README.md`
-- `docs/jev/README-SNIPPET.md`
-
-After copying the files, run:
+From the root of `glowbom-oss`:
 
 ```bash
-./scripts/install-jev-tool.sh
+chmod +x extras/jev/install.sh
+./extras/jev/install.sh
 ```
 
-Then restart Glowbom OSS with `glowbom start`.
+This installs the `jev` tool into your global OpenCode tools folder.
 
-`docs/jev/README-SNIPPET.md` is a short section you can paste into the main project README.
+## 2. Restart Glowbom OSS and choose OpenCode
+
+Restart Glowbom OSS:
+
+```text
+Ctrl+C
+```
+
+```bash
+glowbom start
+```
+
+In Glowbom OSS, choose **OpenCode** and use any model that supports tool calls.
+
+## 3. Add this instruction to your prompt
+
+```text
+Use Jev for narrow decisions with clear choices when it can save reasoning time.
+```
+
+That is it. Your coding model can now call Jev when a small decision is better handled as a clear set of choices.
+
+### Optional
+
+You can force Jev for a specific task by saying something like:
+
+```text
+Use the Jev tool to judge whether this build is healthy.
+```
+
+The current integration uses the free Jev endpoint through OpenCode Zen. No separate Jev API key is needed for this setup today.
