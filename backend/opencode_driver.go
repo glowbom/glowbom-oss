@@ -4132,6 +4132,7 @@ type OpenCodeAgentRequest struct {
 	ProjectPath                         string   `json:"projectPath"`
 	SessionID                           string   `json:"sessionID,omitempty"`    // Reuse existing session if provided
 	Instructions                        string   `json:"instructions,omitempty"` // Optional user instructions
+	BuildTargets                        []string `json:"buildTargets,omitempty"` // Omitted by older clients
 	PersistCurrentInstructionsToHistory bool     `json:"persistCurrentInstructionsToHistory,omitempty"`
 	InstructionAttachmentPaths          []string `json:"instructionAttachmentPaths,omitempty"`
 	Model                               string   `json:"model,omitempty"`
@@ -4218,6 +4219,12 @@ func openCodeRefineHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	preparedInstructions, err := prepareStackBuildInstructions(req.ProjectPath, req.Instructions, req.BuildTargets)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Instructions = preparedInstructions
 	trimmedInstructions := strings.TrimSpace(req.Instructions)
 	shouldPrepareCurrentInstructions := trimmedInstructions != "" || hasAnyInstructionAttachmentPath(req.InstructionAttachmentPaths)
 	if shouldPrepareCurrentInstructions {
@@ -7094,10 +7101,17 @@ func (d *OpenCodeDriver) streamEventsAndWaitForCompletion(
 	sessionID string,
 	promptDispatched <-chan struct{},
 ) (bool, []string, bool, string) {
+	// Closing the browser request does not stop an independently running OpenCode session.
+	// Abort with a fresh, bounded context because the request context is already canceled.
+	stopCancellation := context.AfterFunc(ctx, func() {
+		d.abortSessionBestEffort(sessionID, projectDir, "build request canceled")
+	})
+	defer stopCancellation()
 	log.Printf("[OPENCODE] Starting SSE event streaming and waiting for completion (session: %s)", sessionID)
 	stream := d.client.Event.ListStreaming(ctx, opencode.EventListParams{
 		Directory: opencode.F(projectDir),
 	})
+	defer stream.Close()
 
 	sessionIdle := false
 	hadError := false

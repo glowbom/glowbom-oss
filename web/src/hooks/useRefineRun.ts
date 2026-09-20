@@ -24,6 +24,7 @@ export interface StartRefineInput {
   agentDriver?: 'opencode' | 'cursor';
   projectPath: string;
   instructions?: string;
+  buildTargets?: string[];
   persistCurrentInstructionsToHistory?: boolean;
   instructionAttachmentPaths?: string[];
   model?: string;
@@ -684,6 +685,7 @@ export function useRefineRun() {
         projectPath,
         openaiAuthMode: input.openaiAuthMode,
         mediaGenerationPolicy: 'ask',
+        buildTargets: input.buildTargets,
       };
       if (lastSessionIDRef.current) {
         payload.sessionID = lastSessionIDRef.current;

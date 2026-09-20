@@ -243,6 +243,7 @@ export interface OpenCodeAgentRequest {
   projectPath: string;
   sessionID?: string;
   instructions?: string;
+  buildTargets?: string[];
   persistCurrentInstructionsToHistory?: boolean;
   instructionAttachmentPaths?: string[];
   model?: string;

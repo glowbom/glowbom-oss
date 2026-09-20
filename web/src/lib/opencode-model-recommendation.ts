@@ -4,7 +4,7 @@ export const OPENCODE_RECOMMENDED_MODEL_VALUE = '__opencode_recommended__';
 export const OPENCODE_DEFAULT_MODEL_VALUE = '__opencode_default__';
 
 const CHATGPT_PROVIDER_ID = 'openai';
-const CHATGPT_RECOMMENDED_MODEL_ID = 'gpt-5.6-sol';
+const CHATGPT_RECOMMENDED_MODEL_ID = 'gpt-6-astra';
 
 export interface RecommendedOpenCodeModel {
   value: string;
@@ -31,16 +31,16 @@ export function findChatGPTRecommendedModel(
     return null;
   }
 
-  const solModel = openAIProvider.models.find(
+  const recommendedModel = openAIProvider.models.find(
     (model) => normalizeLookupValue(model.id) === CHATGPT_RECOMMENDED_MODEL_ID,
   );
-  if (!solModel) {
+  if (!recommendedModel) {
     return null;
   }
 
-  const modelLabel = solModel.displayName || solModel.id;
+  const modelLabel = recommendedModel.displayName || recommendedModel.id;
   return {
-    value: `${openAIProvider.id}/${solModel.id}`,
+    value: `${openAIProvider.id}/${recommendedModel.id}`,
     modelLabel,
     fullLabel: `${modelLabel} via ChatGPT`,
   };

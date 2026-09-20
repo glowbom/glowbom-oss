@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BuzzMembersPanel } from './components/BuzzMembersPanel';
+import { StackOpenMenu } from './components/StackOpenMenu';
+import { withServerAuthHeaders } from './lib/server-auth';
+import { ProjectPreview } from './components/ProjectPreview';
+import { previewRequest, type PreviewTarget } from './lib/preview';
 import {
   MODEL_PROVIDERS,
   decodeModelOptionValue,
@@ -240,7 +244,7 @@ function loadSelectedTargets(): string[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const valid = parsed.filter((id: string) => ALL_TARGET_IDS.includes(id));
+        const valid = parsed.filter((id: unknown): id is string => typeof id === 'string' && (ALL_TARGET_IDS.includes(id) || id.startsWith('custom-')));
         return valid.length > 0 ? valid : [...ALL_TARGET_IDS];
       }
     }
@@ -626,6 +630,8 @@ export default function App() {
 
   const [projectPath, setProjectPath] = useState('');
   const [projectEnvelope, setProjectEnvelope] = useState<OpenCodeProjectEnvelope | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+  const [previewTargets, setPreviewTargets] = useState<{ path: string; targets: PreviewTarget[] }>({ path: '', targets: [] });
   const [projectError, setProjectError] = useState<string | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
@@ -719,6 +725,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const refine = useRefineRun();
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const attachmentBusy = useRef(false);
   const previousRefineStatusRef = useRef(refine.status);
 
   const activeProject = projectEnvelope?.project ?? null;
@@ -788,6 +796,22 @@ export default function App() {
   const androidStudioAction = useMemo(() => ideActionFor(ideActions, 'android-studio'), [ideActions]);
   const vscodeAction = useMemo(() => ideActionFor(ideActions, 'vscode'), [ideActions]);
   const selectedProjectPath = projectPath.trim();
+  const buildTargets = useMemo(() => [
+    ...BUILD_TARGETS,
+    ...(previewTargets.path === selectedProjectPath ? previewTargets.targets : [])
+      .filter((target) => target.target.startsWith('custom-'))
+      .map((target) => ({ id: target.target, label: target.name, dir: target.directory })),
+  ], [previewTargets, selectedProjectPath]);
+  const selectedBuildTargets = useMemo(() => {
+    return selectedTargets.filter((id) => buildTargets.some((target) => target.id === id));
+  }, [selectedTargets, buildTargets]);
+  const handlePreviewTargets = useCallback((path: string, targets: PreviewTarget[]) => {
+    setPreviewTargets({ path, targets });
+  }, []);
+  const handleStackAdded = useCallback((targetID: string) => {
+    setSelectedTargets([targetID]);
+    saveSelectedTargets([targetID]);
+  }, []);
   const attachmentCount = instructionAttachments.length;
   const recommendedOpenCodeModel = useMemo(
     () => findChatGPTRecommendedModel(authStatus?.openaiCredentialType, openCodeConfigProviders),
@@ -871,7 +895,7 @@ export default function App() {
     ? selectedImageProvider.label
     : `${selectedImageProvider.label}: add key`;
   const projectButtonLabel = activeProject?.name || (selectedProjectPath ? compactPathLabel(selectedProjectPath) : 'Project');
-  const contextButtonLabel = attachmentCount > 0 ? `Context ${attachmentCount}` : 'Context';
+
 
   const refreshProjectHistory = useCallback(
     async (
@@ -1238,15 +1262,15 @@ export default function App() {
   }, [activeProject, projectPath]);
 
   const toggleTarget = useCallback((targetId: string) => {
-    setSelectedTargets((prev) => {
-      if (prev.includes(targetId) && prev.length === 1) return prev;
-      const next = prev.includes(targetId)
-        ? prev.filter((id) => id !== targetId)
-        : [...prev, targetId];
+    setSelectedTargets(() => {
+      if (selectedBuildTargets.includes(targetId) && selectedBuildTargets.length === 1) return selectedBuildTargets;
+      const next = selectedBuildTargets.includes(targetId)
+        ? selectedBuildTargets.filter((id) => id !== targetId)
+        : [...selectedBuildTargets, targetId];
       saveSelectedTargets(next);
       return next;
     });
-  }, []);
+  }, [selectedBuildTargets]);
 
   useEffect(() => {
     if (!isProjectPickerOpen || refine.isRunning || !activeProject || !selectedProjectPath) {
@@ -1412,7 +1436,36 @@ export default function App() {
     }
   };
 
+  const attachDroppedFiles = async (files: File[]) => {
+    if (refine.isRunning || attachmentBusy.current || files.length === 0) return;
+    setIsContextOpen(true);
+    setInstructionPickerInfo(null);
+    setInstructionPickerWarning(null);
+    if (files.length > 20 || files.reduce((sum, file) => sum + file.size, 0) > MAX_INSTRUCTION_ATTACHMENT_BYTES) {
+      setInstructionPickerWarning('Drop up to 20 files totaling no more than 40MB.');
+      return;
+    }
+    attachmentBusy.current = true;
+    setIsPickingInstructionFiles(true);
+    try {
+      const body = new FormData();
+      for (const file of files) body.append('files', file);
+      const response = await fetch('/api/opencode/instructions/upload', { method: 'POST', headers: withServerAuthHeaders(), body });
+      if (!response.ok) throw new Error((await response.text()).trim());
+      const data = await response.json() as { files: typeof instructionAttachments };
+      setInstructionAttachments((previous) => [...previous, ...data.files]);
+      setInstructionPickerInfo(`Attached ${data.files.length} file(s) for this build.`);
+    } catch (error) {
+      setInstructionPickerWarning(toErrorMessage(error, 'Could not attach files.'));
+    } finally {
+      attachmentBusy.current = false;
+      setIsPickingInstructionFiles(false);
+    }
+  };
+
   const pickInstructionFiles = async () => {
+    if (refine.isRunning || attachmentBusy.current) return;
+    attachmentBusy.current = true;
     setInstructionPickerInfo(null);
     setInstructionPickerWarning(null);
     setIsPickingInstructionFiles(true);
@@ -1475,6 +1528,7 @@ export default function App() {
       }
     } finally {
       setIsPickingInstructionFiles(false);
+      attachmentBusy.current = false;
     }
   };
 
@@ -1773,6 +1827,7 @@ export default function App() {
   };
 
   const startRefine = async () => {
+    if (attachmentBusy.current || refine.isRunning) return;
     setFormError(null);
 
     let hasLoadedProject = Boolean(activeProject);
@@ -1797,23 +1852,20 @@ export default function App() {
 
     const finalInstructions = instructions.trim() || DEFAULT_BUILD_INSTRUCTIONS;
 
-    let targetGuidance = '';
-    const isAllSelected = selectedTargets.length === ALL_TARGET_IDS.length;
-
-    if (!isAllSelected && selectedTargets.length > 0) {
-      const selected = BUILD_TARGETS.filter((t) => selectedTargets.includes(t.id));
-      const deselected = BUILD_TARGETS.filter((t) => !selectedTargets.includes(t.id));
-      const selectedLabels = selected.map((t) => `${t.label} (${t.dir}/)`).join(', ');
-      const deselectedDirs = deselected.map((t) => `${t.dir}/`).join(', ');
-
-      if (selected.length === 1) {
-        targetGuidance = `\n\nIMPORTANT: Please only work on ${selectedLabels}. Do not modify any other directories (${deselectedDirs}).`;
-      } else {
-        targetGuidance = `\n\nIMPORTANT: Please only work on ${selectedLabels}. Do not modify other directories (${deselectedDirs}).`;
+    let requestedBuildTargets: string[];
+    try {
+      const currentTargets = await previewRequest(selectedProjectPath, 'inspect', { requireStackInstructions: true });
+      const availableIDs = new Set([...ALL_TARGET_IDS, ...currentTargets.map((target) => target.target)]);
+      requestedBuildTargets = selectedTargets.filter((id) => availableIDs.has(id));
+      if (!requestedBuildTargets.length) {
+        setFormError('Choose at least one available build target under Project.');
+        setIsProjectPickerOpen(true);
+        return;
       }
+    } catch (error) {
+      setFormError(toErrorMessage(error, 'Could not load the project stack settings.'));
+      return;
     }
-
-    const finalInstructionsWithTargets = finalInstructions + targetGuidance;
 
     if (isCheckingSetup || healthError || health?.healthy === false) {
       setFormError('The selected agent is not ready. Open Settings, refresh the checks, and follow the setup instructions.');
@@ -1917,7 +1969,8 @@ export default function App() {
     void refine.startRefine({
       agentDriver,
       projectPath: selectedProjectPath,
-      instructions: finalInstructionsWithTargets,
+      instructions: finalInstructions,
+      buildTargets: requestedBuildTargets,
       persistCurrentInstructionsToHistory: true,
       instructionAttachmentPaths,
       model: modelValue || undefined,
@@ -2212,7 +2265,7 @@ export default function App() {
             <div className="composer-toolbar-primary">
               <button
                 className={`composer-chip-button ${activeProject ? 'has-value' : ''} ${isProjectPickerOpen ? 'active' : ''}`}
-                disabled={refine.isRunning || isLoadingProject}
+                disabled={refine.isRunning || isLoadingProject || isPickingInstructionFiles}
                 onClick={toggleProjectPicker}
                 type="button"
               >
@@ -2222,10 +2275,10 @@ export default function App() {
 
               {activeProject ? (
                 <div className="project-launch-strip" role="group" aria-label="Open project in apps">
-                  {renderProjectLaunchButton('finder', 'Finder', finderAction)}
+                  <StackOpenMenu projectPath={selectedProjectPath} projectName={activeProject.name} disabled={isLoadingProject} />
                   {renderProjectLaunchButton('xcode', 'Xcode', xcodeAction)}
                   {renderProjectLaunchButton('android-studio', 'Android Studio', androidStudioAction)}
-                  {renderProjectLaunchButton('vscode', 'VS Code', vscodeAction)}
+                  <button className="button secondary tiny" type="button" aria-expanded={isPreviewOpen} onClick={() => setIsPreviewOpen((open) => !open)}>Preview</button>
                 </div>
               ) : null}
             </div>
@@ -2233,11 +2286,15 @@ export default function App() {
             <div className="row composer-toolbar-actions">
               <button
                 className={`composer-chip-button ${attachmentCount > 0 ? 'has-value' : ''} ${isContextOpen ? 'active' : ''}`}
-                disabled={refine.isRunning}
-                onClick={toggleContextPanel}
+                disabled={refine.isRunning || isPickingInstructionFiles}
+                onClick={() => { if (attachmentCount) toggleContextPanel(); else { setIsContextOpen(true); void pickInstructionFiles(); } }}
+                aria-label={attachmentCount ? `Attachments (${attachmentCount})` : 'Attach files'}
+                title={refine.isRunning ? 'Attachments are unavailable while building' : 'Attach files'}
+                aria-expanded={isContextOpen}
                 type="button"
               >
-                <span className="composer-chip-value">{contextButtonLabel}</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9a7 7 0 0 1 10 10l-9 9" /></svg>
+                {attachmentCount > 0 ? <span>{attachmentCount}</span> : null}
               </button>
               <button
                 className={`composer-chip-button ${systemNeedsAttention ? 'attention' : ''} ${isSettingsOpen ? 'active' : ''}`}
@@ -2350,19 +2407,6 @@ export default function App() {
                     </div>
                   </div>
                   <p className="meta project-path-meta">{selectedProjectPath}</p>
-                  <div className="chip-list">
-                    {BUILD_TARGETS.map((target) => (
-                      <label className={`chip chip-selectable ${selectedTargets.includes(target.id) ? '' : 'chip-deselected'}`} key={target.id}>
-                        <input
-                          type="checkbox"
-                          checked={selectedTargets.includes(target.id)}
-                          onChange={() => toggleTarget(target.id)}
-                          disabled={refine.isRunning}
-                        />
-                        {target.label}
-                      </label>
-                    ))}
-                  </div>
 
                   <details className="project-tools-disclosure">
                     <summary>Tools</summary>
@@ -2616,7 +2660,7 @@ export default function App() {
           {isContextOpen ? (
             <div className="composer-popover">
               <div className="composer-popover-header">
-                <strong>Context</strong>
+                <strong>Attachments</strong>
                 <div className="row">
                   <button
                     className="button secondary tiny"
@@ -3004,7 +3048,20 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="composer-input-wrap">
+          <div className={`composer-input-wrap ${isDraggingFiles ? 'is-dragging' : ''}`}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes('Files')) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = refine.isRunning || isPickingInstructionFiles ? 'none' : 'copy';
+              setIsDraggingFiles(!refine.isRunning && !isPickingInstructionFiles);
+            }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setIsDraggingFiles(false); }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDraggingFiles(false);
+              if (!refine.isRunning) void attachDroppedFiles(Array.from(event.dataTransfer.files));
+            }}>
+            {isDraggingFiles ? <div className="composer-drop-hint">Drop files to attach</div> : null}
             {refine.isRunning ? (
               optimisticHistoryEntry ? (
                 renderHistoryEntryCard(optimisticHistoryEntry)
@@ -3023,12 +3080,28 @@ export default function App() {
                   setInstructions(event.target.value);
                   setFormError(null);
                 }}
-                placeholder="What should Glowbom build?"
+                placeholder="What should Glowbom build? Drop screenshots or files here."
                 rows={7}
                 value={instructions}
               />
             )}
           </div>
+
+          {activeProject ? <div className="composer-build-targets">                  <span className="meta">Build targets</span>
+                  <div className="chip-list" role="group" aria-label="Build targets">
+                    {buildTargets.map((target) => (
+                      <label className={`chip chip-selectable ${selectedBuildTargets.includes(target.id) ? '' : 'chip-deselected'}`} key={target.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedBuildTargets.includes(target.id)}
+                          onChange={() => toggleTarget(target.id)}
+                          disabled={refine.isRunning}
+                        />
+                        {target.label}
+                      </label>
+                    ))}
+                  </div>
+</div> : null}
 
           {formError ? <p className="error-inline composer-error">{formError}</p> : null}
           {!formError && projectError && !isProjectPickerOpen ? <p className="error-inline composer-error">{projectError}</p> : null}
@@ -3059,7 +3132,7 @@ export default function App() {
               <span className={`run-status status-${refine.status}`}>{RUN_STATUS_LABEL[refine.status]}</span>
               <button
                 className="button"
-                disabled={refine.isRunning || refine.isSubmittingInput || isLoadingProject}
+                disabled={refine.isRunning || refine.isSubmittingInput || isLoadingProject || isPickingInstructionFiles}
                 onClick={() => {
                   void startRefine();
                 }}
@@ -3073,6 +3146,10 @@ export default function App() {
             </div>
           </div>
         </section>
+
+        {activeProject && selectedProjectPath ? (
+          <ProjectPreview key={selectedProjectPath} projectPath={selectedProjectPath} runStatus={refine.status} hidden={!isPreviewOpen} onTargetsChange={handlePreviewTargets} onStackAdded={handleStackAdded} />
+        ) : null}
 
         <section className="card activity-card">
           <div className="card-title-row">

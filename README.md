@@ -13,6 +13,9 @@ Glowbom OSS helps you build production-ready software with coding agents. It is 
 - Make software projects and prototypes production-ready with coding agents
 - Use the providers and models already configured in OpenCode
 - Try Cursor CLI as an optional coding agent for local builds
+- Preview your project locally and open it in a separate browser tab
+
+See [all supported stacks](SUPPORTED_STACKS.md), why each is included, and which ones come in the standard Glowbom project. You can also add any custom stack.
 
 Image placeholders in downloaded projects support both `glowbomimages:` and
 legacy `glowbyimages:` prefixes. The singular forms `glowbomimage:` and
@@ -142,6 +145,62 @@ The previous `GLOWBY_*` variables remain accepted during the rename transition.
 2. Load a local project
 3. Choose the model from your OpenCode setup, or keep its configured default
 4. Start a refine run
+
+## Project previews
+
+Load a project and click **Preview** beside the editor buttons. Choose
+**Prototype** (`prototype/`) or **Web** (`web/`), then click **Start preview**.
+For a Next.js or Vite app that needs packages, **Install & run** runs `bun install`
+first. Bun must be available on the backend's `PATH`.
+
+Use **Open in Browser** to open the same app in a separate browser tab. You can
+interact with it there or inside Glowbom, switch between phone and desktop widths,
+and see changes while an agent works. HTML previews refresh after file edits.
+Next.js and Vite use their own live updates. Startup errors appear in the preview
+logs.
+
+The folder menu beside the stack tiles opens the selected stack in your browser,
+terminal, file manager, or a detected local editor. It also lets you copy the
+folder path. The project-level folder button still opens the whole project.
+
+**+ Add stack** lets you describe what the agent should build. Start with
+**React + Vite** (the Glowbom OSS frontend stack), **Tauri + React** (web and
+desktop), or your own description. Choose a folder such as `apps/my-tool`, save,
+then describe your app in the main editor and click **Build**. Saving a new stack
+selects it as the next build target. Add other targets under **Project** when
+needed. The stack description is included on every build that selects it.
+
+You can also connect an existing folder. Static HTML, Next.js, and Vite are
+detected automatically. Stack descriptions and preview settings are saved in
+`.glowbom/previews.json`. See [custom stacks and existing apps](STACKS.md) for
+examples, including how to work on Karaoke.
+
+For another web server or an app with a special startup script, enter its launch
+command. For example, a Vite script can use:
+
+```text
+bun run dev --host {host} --port {port}
+```
+
+The command must use both placeholders. Glowbom supplies `127.0.0.1` and an
+available port. Commands run from the selected folder without a shell; put complex
+startup steps in a project script. Install dependencies for custom commands first.
+The embedded preview refreshes when the custom folder changes. A custom server
+needs its own live reload support to update a separate browser tab automatically.
+
+Previews use separate local ports. Built-in HTML previews have a separate access
+token, while framework servers rely on loopback access. They do not receive the
+Glowbom backend token or provider credentials. Starting a framework or custom
+command runs project code on your computer, including package installation hooks.
+Custom servers must honor the supplied host and port. A localhost preview is not
+a sandbox or a public deployment.
+
+Switching preview tabs keeps the project's running servers available. **Stop
+preview**, switching projects, or shutting down the backend stops them. Hiding
+the Preview panel keeps them running, so a separate browser tab remains usable.
+Native Apple and Android apps still open in their platform tools. Tauri previews
+show the web interface; native features and packaging require a separate desktop
+run.
 
 ## Cost
 

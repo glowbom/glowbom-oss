@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     base: appBasePath,
     plugins: [react()],
     server: {
+      cors: false,
       port: 4572,
       strictPort: true,
       host,

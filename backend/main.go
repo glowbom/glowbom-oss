@@ -1,14 +1,28 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
 	mux := http.NewServeMux()
+	uploads, err := os.MkdirTemp("", "glowbom-attachments-")
+	if err != nil {
+		log.Fatal("Could not prepare attachment storage")
+	}
+	defer os.RemoveAll(uploads)
+	mux.HandleFunc("/opencode/instructions/upload", instructionUploadHandler(uploads))
+	previews := newProjectPreviewManager()
+	defer previews.Close()
+	mux.Handle("/preview", previews)
 
 	mux.HandleFunc("/healthz", glowbomHealthHandler)
 	mux.HandleFunc("/", glowbomBackendHomeHandler)
@@ -83,5 +97,18 @@ func main() {
 		fmt.Println("Backend auth enabled for non-public routes.")
 	}
 	fmt.Printf("Server running on http://%s\n", listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, withGlowbomSecurity(mux)))
+	server := &http.Server{Addr: listenAddr, Handler: withGlowbomSecurity(mux), ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		previews.Close()
+		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
+	}()
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		previews.Close()
+		log.Fatalf("Server stopped: %v", err)
+	}
 }
