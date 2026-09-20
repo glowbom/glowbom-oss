@@ -1,3 +1,4 @@
+import { AppearancePicker, type AppearanceProps } from './components/AppearancePicker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BuzzMembersPanel } from './components/BuzzMembersPanel';
 import { StackOpenMenu } from './components/StackOpenMenu';
@@ -620,7 +621,7 @@ function isUnsupportedNativePickerError(error: unknown): boolean {
   return toErrorMessage(error, '').toLowerCase().includes('only available on');
 }
 
-export default function App() {
+export default function App({ onOpenAccount, ...appearance }: AppearanceProps & { onOpenAccount: () => void }) {
   const topbarLogoSrc = `${import.meta.env.BASE_URL}logo-svg.svg`;
   const [health, setHealth] = useState<OpenCodeHealthResponse | null>(null);
   const [authStatus, setAuthStatus] = useState<OpenCodeAuthStatus | null>(null);
@@ -2246,9 +2247,10 @@ export default function App() {
             <a href="https://glowbom.com/blog/" rel="noreferrer" target="_blank">Blog</a>
             <a href="https://glowbom.com/pricing/" rel="noreferrer" target="_blank">Pricing</a>
           </nav>
-          <a className="button topbar-cta" href="https://glowbom.com/draw" rel="noreferrer" target="_blank">
-            Get started for free
-          </a>
+          <div className="workspace-preferences">
+            <AppearancePicker {...appearance} />
+            <button className="button secondary" onClick={onOpenAccount}>Glowbom account</button>
+          </div>
         </div>
       </header>
 
