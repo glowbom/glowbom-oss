@@ -24,11 +24,19 @@ CLI credential store; the bridge never returns them, CLI stderr, or login output
 | `GET /account/login` | Returns `idle`, `pending`, `complete`, `failed`, or `canceled`. Completion means credentials were saved; read account status next. |
 | `POST /account/login/cancel` | Requests cancellation of the active login. Poll until it settles before another credential operation. |
 | `POST /account/logout` | Runs `glowbom logout`; returns `signed_out` only on success. This affects the shared local CLI account. |
+| `POST /account/project` | Runs `glowbom export --output` into a new folder inside the posted `parent` directory. Returns the created `path`, plus the saved prompt and drawing when `glowbom.json` lists them. This is a one-time download of the current saved project. |
 
 Login opens the browser on the computer running the backend. It is intended for
 a local desktop. On a remote machine, use the CLI's existing device login flow
-instead. The bridge accepts no executable, command arguments, credential paths,
-or arbitrary URLs from requests. It launches a fixed CLI command without a shell.
+instead. The bridge accepts no executable, credential paths, or arbitrary URLs from
+requests. It launches a fixed CLI command without a shell. Project download
+accepts only an absolute parent directory, creates a new child folder there,
+and returns that folder after checking it contains `glowbom.json`. It never
+replaces an existing file or folder. When the manifest lists `promptPath` or
+`initialDrawingPath`, the response also includes that prompt text and drawing.
+Those paths must stay inside the new folder. The app icon and every other
+project file stay on disk and are not returned. A missing prompt or drawing
+still leaves the downloaded project usable.
 
 The bridge serializes its credential operations. Status or logout during login
 returns 409 with `account_busy`; login itself is bounded to just over five minutes.

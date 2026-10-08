@@ -1,11 +1,13 @@
 ---
 title: Glowbom Desktop
-description: Start with a sketch. Keep building on your desktop.
+description: Continue local projects, connect coding agents, and pair a companion preview.
 ---
 
-Glowbom Desktop is being developed for **macOS, Windows, and Linux**. The goal is
-to bring the open Glowbom workflow into a desktop app, so you can continue a
-project with local files, tools, and coding agents.
+Glowbom Desktop uses the open Glowbom backend with a separate full React
+interface and Tauri shell. Its UI source is not part of Glowbom OSS, whose
+public browser interface focuses on Agent and Buzz.
+Continue a project with connected AI agents, preview the result, and keep its
+saved history in the [Project Book](./project-book).
 
 ## Current availability
 
@@ -14,16 +16,34 @@ It shows people and agents from a Buzz channel as characters in a virtual
 office. You still need Glowbom OSS 4.1.0 or later running locally, with a Buzz
 channel connected.
 
-Glowbom Desktop, the broader local app for continuing a Glowbom project, is
-still on the waitlist at [glowbom.com/desktop](https://glowbom.com/desktop/).
-This guide does not provide a Desktop installer.
+Desktop 4.1.1 is available as a signed, notarized Mac early-access download at
+[glowbom.com/desktop/early-access](https://glowbom.com/desktop/early-access/).
+Windows and Linux Desktop packages are not released. The source guides below
+describe the full Desktop client; they are not controls in the minimal OSS
+browser interface. Hardware and companion acceptance checks remain separate
+from publishing a download.
 
-## Continue the same project
+## Connect a coding agent
 
-The intended workflow is to begin with a sketch or prototype, open the project
-on your desktop, and keep improving it while preserving what you meant in its
-[Project Book](./project-book). Platform installers and supported handoff steps
-will be documented when released.
+Open **Settings → Connect AI** to connect model providers or check the built-in
+agent integrations. Cursor needs its CLI installed and signed in. Installing
+the Cursor editor or CLI alone does not connect its models.
+
+Use **Account → Tools → ACP connections** to configure another installed agent, such as
+Cline, with its executable and ACP arguments. Test it, choose a reported model,
+save, and select the connection for Build. Follow [Connect AI](./connect-ai)
+for setup, supported roles, and troubleshooting.
+
+## Pair iOS or Vision Pro
+
+The companion preview connects an iPhone, iPad, or Vision Pro to a running
+Desktop on the same local network. In **Settings → Phone connection**, enable
+access and pair your own device. Both sides need matching builds.
+
+Use shared projects for chat, reviewed builds, previews, and reading the Book.
+Studio uses the computer's connected media providers. Credentials stay on the
+computer; messages and attached media pass through it to the selected provider.
+See the [companion guide](./companion) for pairing and current limits.
 
 ## Build locally today
 
@@ -36,4 +56,4 @@ You can work with your own project or the bundled starter template.
 Local project files do not mean every model runs offline. Cloud providers need
 an internet connection and their own account or credentials. Local models depend
 on your provider setup and hardware. We do not promise fully offline operation
-for the upcoming desktop release.
+for the Desktop release.

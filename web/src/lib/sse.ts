@@ -5,6 +5,7 @@ interface StreamJsonSseOptions<TRequest, TEvent extends Record<string, unknown>>
   body: TRequest;
   signal: AbortSignal;
   onEvent: (event: TEvent) => void;
+  onResponse?: (response: Response) => void;
 }
 
 function parseErrorMessage(response: Response, bodyText: string): string {
@@ -49,6 +50,7 @@ export async function streamJsonSse<TRequest extends object, TEvent extends Reco
   if (!response.ok) {
     throw new Error(parseErrorMessage(response, await response.text()));
   }
+  options.onResponse?.(response);
 
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/event-stream')) {
@@ -107,4 +109,16 @@ export async function streamJsonSse<TRequest extends object, TEvent extends Reco
       // Ignore malformed terminal payload.
     }
   }
+}
+
+export async function streamConfirmedSse<TRequest extends object, TEvent extends Record<string, unknown>>(
+  options: StreamJsonSseOptions<TRequest, TEvent>,
+): Promise<TEvent> {
+  let terminal: TEvent | null = null;
+  await streamJsonSse<TRequest, TEvent>({ ...options, onEvent: event => {
+    if (event.done === true) terminal = event;
+    options.onEvent(event);
+  } });
+  if (!terminal) throw new Error('The response stopped before completion. Your request is still available to retry.');
+  return terminal;
 }

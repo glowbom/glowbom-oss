@@ -345,9 +345,9 @@ func (c *accountClient) refresh(ctx context.Context, credentials accountCredenti
 }
 
 type accountSummary struct {
-	SubscriptionStatus string  `json:"subscriptionStatus"`
-	RemainingUSD       float64 `json:"remainingUsd"`
-	AllowanceUSD       float64 `json:"allowanceUsd"`
+	SubscriptionStatus string   `json:"subscriptionStatus"`
+	RemainingUSD       *float64 `json:"remainingUsd"`
+	AllowanceUSD       *float64 `json:"allowanceUsd"`
 }
 
 func (c *accountClient) readAccount(ctx context.Context, forceRefresh bool) (accountCredentials, accountSummary, error) {
@@ -385,8 +385,8 @@ func (c *accountClient) account(ctx context.Context, forceRefresh bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "Account: %s\nSubscription: %s\nRemaining allowance: $%.4f of $%.2f\n",
-		credentials.Email, result.SubscriptionStatus, result.RemainingUSD, result.AllowanceUSD)
+	fmt.Fprintf(c.out, "Account: %s\nSubscription: %s\nGlowbom credits remaining: %s of %s\n",
+		credentials.Email, result.SubscriptionStatus, formatCreditBalance(creditsFromUSD(result.RemainingUSD)), formatCreditBalance(creditsFromUSD(result.AllowanceUSD)))
 	return nil
 }
 

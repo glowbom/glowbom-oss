@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -25,17 +26,11 @@ func isOpenAIImageSource(imageSource string) bool {
 
 // callOpenAIImageGeneration calls OpenAI's image generation API with the current GPT Image model.
 // Returns base64 data URI on success
-func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat string, apiKey string) (string, error) {
+func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat string, apiKey string, contexts ...context.Context) (string, error) {
 	url := "https://api.openai.com/v1/images/generations"
 
-	// Map aspect ratio to OpenAI size parameter
-	size := "1024x1024" // default
-	switch aspectRatio {
-	case "9:16":
-		size = "1024x1536"
-	case "16:9":
-		size = "1536x1024"
-	case "1:1", "":
+	size := imageGenerationSize(aspectRatio)
+	if size == "auto" {
 		size = "1024x1024"
 	}
 
@@ -43,7 +38,7 @@ func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat s
 	// Using low quality for fastest experience
 	reqBody := map[string]interface{}{
 		"model":   openAIImageModelID,
-		"prompt":  prompt,
+		"prompt":  imageAspectPrompt(prompt, aspectRatio, false),
 		"size":    size,
 		"quality": "low", // low quality for speed
 		"n":       1,
@@ -59,7 +54,7 @@ func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat s
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(imageRequestContext(contexts), "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -73,7 +68,7 @@ func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat s
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 24<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
@@ -115,7 +110,7 @@ func callOpenAIImageGeneration(prompt string, aspectRatio string, outputFormat s
 // The image is only sent to OpenAI's API and immediately discarded after the request.
 //
 // Returns base64 data URI on success
-func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 string, aspectRatio string, outputFormat string, apiKey string) (string, error) {
+func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 string, aspectRatio string, outputFormat string, apiKey string, contexts ...context.Context) (string, error) {
 	url := "https://api.openai.com/v1/images/edits"
 
 	// Decode base64 to bytes
@@ -143,14 +138,8 @@ func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 
 		}
 	}
 
-	// Map aspect ratio to size
-	size := "1024x1024" // default
-	switch aspectRatio {
-	case "9:16":
-		size = "1024x1536"
-	case "16:9":
-		size = "1536x1024"
-	case "1:1", "":
+	size := imageGenerationSize(aspectRatio)
+	if size == "auto" {
 		size = "1024x1024"
 	}
 
@@ -171,7 +160,7 @@ func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 
 	}
 
 	// Add prompt
-	if err := writer.WriteField("prompt", prompt); err != nil {
+	if err := writer.WriteField("prompt", imageAspectPrompt(prompt, aspectRatio, true)); err != nil {
 		return "", fmt.Errorf("failed to write prompt: %w", err)
 	}
 
@@ -207,7 +196,7 @@ func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 
 	}
 
 	// Create request
-	req, err := http.NewRequest("POST", url, &requestBody)
+	req, err := http.NewRequestWithContext(imageRequestContext(contexts), "POST", url, &requestBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -222,7 +211,7 @@ func callOpenAIImageGenerationWithReference(prompt string, referenceImageBase64 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 24<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}

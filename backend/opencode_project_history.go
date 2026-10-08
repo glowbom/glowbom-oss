@@ -28,6 +28,11 @@ type openCodeProjectHistoryEntryResponse struct {
 	TaskType               string                                     `json:"taskType"`
 	Status                 string                                     `json:"status,omitempty"`
 	OutputSummary          string                                     `json:"outputSummary,omitempty"`
+	Model                  string                                     `json:"model,omitempty"`
+	Provider               string                                     `json:"provider,omitempty"`
+	Contributor            string                                     `json:"contributor,omitempty"`
+	RunID                  string                                     `json:"runId,omitempty"`
+	ChangedFiles           []string                                   `json:"changedFiles,omitempty"`
 	FolderName             string                                     `json:"folderName"`
 	MissingAttachmentCount int                                        `json:"missingAttachmentCount,omitempty"`
 	Attachments            []openCodeProjectHistoryAttachmentResponse `json:"attachments,omitempty"`
@@ -198,6 +203,11 @@ func loadProjectHistoryEntries(projectPath string) ([]openCodeProjectHistoryEntr
 				TaskType:               taskType,
 				Status:                 normalizeHistoryStatus(record.Status),
 				OutputSummary:          strings.TrimSpace(record.OutputSummary),
+				Model:                  strings.TrimSpace(record.Model),
+				Provider:               strings.TrimSpace(record.Provider),
+				Contributor:            strings.TrimSpace(record.Contributor),
+				RunID:                  strings.TrimSpace(record.RunID),
+				ChangedFiles:           record.ChangedFiles,
 				FolderName:             folderName,
 				MissingAttachmentCount: missingAttachmentCount,
 				Attachments:            attachments,

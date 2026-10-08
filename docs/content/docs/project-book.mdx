@@ -1,53 +1,84 @@
 ---
 title: Project Book
-description: Keep the idea, decisions, and history beside the code.
+description: Read and edit the saved history of a Glowbom project.
 ---
 
-When a house is built, its drawings explain what was intended and how it fits
-together. A Glowbom Project Book brings that idea to software.
+Project Book turns saved prototypes and builds into a readable project history.
+The backend, generation APIs, and portable records are open source. The reader
+and editing screens described below belong to the separate Desktop client,
+not the minimal public Agent + Buzz interface.
 
-The code shows what exists. The Book should also explain why it exists, what
-changed, and what still needs to happen.
+Open a project in Glowbom Desktop and select the small book icon beside the chat
+controls, in Result, or in the full workspace. Opening the Book gathers saved
+records without calling a model or changing project code.
 
-## What belongs in a Book
+## Read and edit
 
-- The purpose of the project and who it is for.
-- Sketches, screenshots, and useful assets.
-- Important decisions and the reasons behind them.
-- The current result, its limitations, and the next step.
-- A history of accepted changes.
+Select an entry to read its story and view any saved illustrations. **Behind this
+story** shows the captured request, contributor, recorded models, changed files,
+and run outline when available. Older records may have fewer details.
 
-## Readable files
+After a successful prototype or supported build, an available Book model can
+draft a story and a vector drawing from the saved work. The drawing is an AI
+interpretation, not a verified screenshot of the running app. **View drawing**
+opens it; the window icon opens an editable copy in Magic Window.
 
-The direction is a portable collection of files kept with the project. A starting
-layout can look like this:
+Use the pencil to edit the title, story, and captions. Add PNG, JPEG, or WebP
+illustrations with the image icon. Each save creates a revision. New records and
+retries preserve existing stories, drawings, and owner edits.
+
+If content is missing, choose **Drawing and text**, **Drawing only**, or **Text
+only**, then **Retry selected**. An untouched older entry may offer **Write
+story**. Keep Glowbom open while generation runs. Use the speaker to listen with
+your saved chat speech voice.
+
+## Choose a model and writing voice
+
+Open **Settings > Project Book > Model**. This model generates stories and
+drawings independently of Build and Chat. **Automatic** tries an eligible build
+model, then your Chat model. Compatible connected OpenCode and Codex models are
+available; build-only agents such as Cursor use a separate eligible Book model.
+
+An entry's **Using > Change** control overrides the model for that entry without
+changing the default. Changing models leaves saved content intact.
+
+Settings also offers writing voices and a **Custom** style prompt. These apply
+to new stories and drawings. **Try another voice** previews a rewritten story;
+review it and select **Save entry** to keep a new revision, or cancel. The preview
+leaves the drawing intact.
+
+## Files you own
+
+The Book stays inside the project:
 
 ```text
 project-book/
   README.md
+  book.json
   intent.md
   current-result.md
   decisions.md
   next.md
   PROJECT_BRIEF.md
+  assets/
   history/
+    <entry-id>/<revision>/
+      entry.md
+      source.json
+      sketch.json
+      ready
 ```
 
-The Project Brief is a short view of the Book for a coding agent. It should be
-regenerated from the project record rather than becoming a competing source of
-truth.
+`entry.md` holds the editable story, `source.json` records its evidence, and
+`sketch.json` holds vector drawings. The latest revision with a `ready` marker
+is current. The overview notes are owner starting points; `PROJECT_BRIEF.md`
+initially points to them. Keep the project's original `history/` and
+`.glowbom/prototypes/` records when moving it.
 
-## Be clear about what is known
+## Current limits
 
-Separate information found in the project from an agent's inference and decisions
-confirmed by the owner. Old code alone cannot explain every original intention.
-
-## Current status
-
-The integrated Book workflow is under development. This page describes the
-intended format, not a guarantee that automatic Book creation, editing, history,
-or synchronization is available in every released client.
-
-You can keep these notes manually beside your code today. Use the
-[available OSS workflow](./glowbom-oss) for local agent work, and review each change
-before updating your project record.
+The [iOS and Vision Pro companion](./companion) can read Books for shared projects; editing stays
+on Desktop. Reading or editing a Book does not rebuild software or publish it.
+Generated stories and drawings need review. Images are limited to 8 MiB and 32
+megapixels, with up to 32 images per entry and 1000 entries per Book. Older
+releases may not include this reader.

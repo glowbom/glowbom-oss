@@ -2,6 +2,17 @@ package main
 
 import "testing"
 
+func TestResolveAgentImageProviderKeysDoesNotUseChatGPTTokenForPlatformImages(t *testing.T) {
+	for _, imageKey := range []string{"", "platform-image-key"} {
+		key, _, _ := resolveAgentImageProviderKeys(OpenCodeAgentRequest{
+			OpenAIAuthMode: "codex-jwt", OpenAIKey: "subscription-token", OpenAIImageKey: imageKey,
+		})
+		if key != imageKey {
+			t.Fatal("ChatGPT token used in place of a platform image key")
+		}
+	}
+}
+
 func TestResolveAgentImageProviderKeysPrefersDedicatedKeys(t *testing.T) {
 	openAIKey, geminiKey, xaiKey := resolveAgentImageProviderKeys(OpenCodeAgentRequest{
 		OpenAIKey:      "coding-openai",

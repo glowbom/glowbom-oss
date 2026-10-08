@@ -14,7 +14,7 @@ var (
 const usage = `glowbom - terminal-first local AI coding agent for Glowbom OSS
 
 Usage:
-  glowbom start [project-path] [--show-local-auth]
+  glowbom start [project-path] [options]
                                 Start Glowbom OSS from this checkout and open the browser
   glowbom doctor                Check environment dependencies
   glowbom login [--no-browser] [--device-auth]
@@ -33,8 +33,18 @@ Usage:
   glowbom version               Print version info
   glowbom help                  Show this help
 
+Start options:
+  --no-browser                   Start without opening the browser
+  --show-local-auth              Explicitly print local development credentials
+  --web-dir ABSOLUTE_DIRECTORY   Use another compatible web shell
+  --backend-port PORT            Backend port (default 4569)
+  --web-port PORT                Web port (default 4572)
+  --agent-port PORT              Agent port (default GLOWBOM_AGENT_PORT or 4571)
+  --instance NAME                Local instance name (default oss)
+
 Examples:
   glowbom start                   Start Glowbom OSS from the current checkout
+  glowbom start --no-browser      Start Glowbom OSS without opening a browser
   glowbom start --show-local-auth Start Glowbom OSS and print local dev auth credentials
   glowbom start /path/to/project  Start Glowbom OSS and print a project path hint
 

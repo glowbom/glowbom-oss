@@ -157,7 +157,7 @@ func TestAccountRefreshesOnceAndStoresRotatedCredentials(t *testing.T) {
 	if refreshes != 1 || reads != 2 || store.value.RefreshToken != "rotated-refresh" {
 		t.Fatal("incorrect refresh behavior")
 	}
-	if !strings.Contains(output.String(), "$12.5000") || strings.Contains(output.String(), "token") {
+	if !strings.Contains(output.String(), "2,500 of 4,000") || strings.Contains(output.String(), "token") {
 		t.Fatal("unexpected account output")
 	}
 }

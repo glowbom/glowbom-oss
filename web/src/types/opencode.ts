@@ -136,11 +136,28 @@ export interface OpenCodeProjectSettingsResponse {
 export interface OpenCodeGenerateIconRequest {
   path: string;
   prompt: string;
+  sourceId?: string;
+  apiKey?: string;
   imageSource?: string;
   openaiKey?: string;
   geminiKey?: string;
   xaiKey?: string;
   referenceImage?: string;
+}
+
+export interface ProjectIconSource {
+  id: string;
+  label: string;
+  model: string;
+  authType: 'subscription' | 'api-key' | 'account';
+  available: boolean;
+  availabilityCode?: 'account_busy' | 'account_unavailable' | 'sign_in_required' | 'cli_unavailable' | 'cli_update_required' | 'backend_auth_required'
+    | 'codex_cli' | 'codex_login' | 'codex_capability' | 'codex_process' | 'codex_timeout' | 'codex_canceled' | 'codex_transport';
+}
+
+export interface ProjectIconSourcesResponse {
+  sources: ProjectIconSource[];
+  recommendedSource: string;
 }
 
 export interface OpenCodeGenerateIconResponse {
@@ -149,6 +166,8 @@ export interface OpenCodeGenerateIconResponse {
   sourceService?: string;
   image?: string;
   error?: string;
+  studioAssetId?: string;
+  warning?: string;
 }
 
 export interface OpenCodeProjectEnvelope {
@@ -238,8 +257,12 @@ export interface OpenCodeProjectOpenResponse {
   error?: string;
 }
 
+export type BuildPermissionMode = 'ask' | 'all';
+
 export interface OpenCodeAgentRequest {
-  agentDriver?: 'opencode' | 'cursor';
+  permissionMode?: BuildPermissionMode;
+  useJev?: boolean;
+  agentDriver?: 'opencode' | 'cursor' | 'claude-code' | 'codex' | 'acp';
   projectPath: string;
   sessionID?: string;
   instructions?: string;
@@ -247,6 +270,7 @@ export interface OpenCodeAgentRequest {
   persistCurrentInstructionsToHistory?: boolean;
   instructionAttachmentPaths?: string[];
   model?: string;
+  reasoningEffort?: string;
   openaiKey?: string;
   openaiImageKey?: string;
   openaiAuthMode?: OpenAIAuthMode;
@@ -261,6 +285,7 @@ export interface OpenCodeAgentRequest {
   xaiKey?: string;
   xaiImageKey?: string;
   elevenLabsKey?: string;
+  elevenLabsUseSavedKey?: boolean;
   imageSource?: string;
   mediaGenerationPolicy?: 'auto' | 'ask' | 'skip';
 }
@@ -293,6 +318,8 @@ export interface OpenCodePermission {
   type: string;
   message: string;
   pattern: string;
+  availableResponses?: Array<'once' | 'always' | 'session' | 'build' | 'all' | 'reject' | 'cancel'>;
+  buildApprovalTool?: string;
 }
 
 export interface OpenCodeQuestionRespondRequest {
@@ -307,15 +334,32 @@ export interface OpenCodeQuestionRespondRequest {
 export interface OpenCodePermissionRespondRequest {
   sessionID: string;
   permissionID: string;
-  response: 'once' | 'always' | 'reject';
+  response: 'once' | 'always' | 'session' | 'build' | 'all' | 'reject' | 'cancel';
   projectPath?: string;
 }
 
 export interface OpenCodeMediaApprovalItem {
+  resolution?: string;
+  id: string;
   mediaType: 'image' | 'video' | 'audio' | string;
   prompt: string;
   provider: string;
+  placeholder?: string;
+  sourceId?: string;
+  excluded?: boolean;
+  referenceImages?: string[];
+  referenceOrigin?: 'previous-image';
+  aspectRatio?: string;
+  fromKey?: string;
   audioType?: 'voice' | 'sound' | 'music' | string;
+  voiceID?: string;
+  modelID?: string;
+  quality?: string;
+  durationSeconds?: number;
+  promptInfluence?: number;
+  loop?: boolean;
+  forceInstrumental?: boolean;
+  usagePrompt?: string;
 }
 
 export interface OpenCodeMediaApproval {
@@ -329,11 +373,24 @@ export interface OpenCodeMediaApprovalRespondRequest {
   approvalID: string;
   response: 'generate' | 'skip';
   projectPath?: string;
+  items?: OpenCodeMediaApprovalItem[];
+  imageApiKeys?: Record<string, string>;
+  videoApiKeys?: Record<string, string>;
+  imageUseSavedKey?: boolean;
+  videoUseSavedKey?: boolean;
 }
 
 export interface OpenCodeSseEvent {
+  permissionMode?: BuildPermissionMode;
+  jobId?: string;
+  runId?: string;
+  cancelled?: boolean;
+  jobStatus?: string;
+  steerable?: boolean;
   output?: string;
   outputChunk?: string;
+  resultText?: string;
+  status?: { text: string; source: 'agent' | 'activity' | 'system'; at: string };
   done?: boolean;
   success?: boolean;
   error?: string;

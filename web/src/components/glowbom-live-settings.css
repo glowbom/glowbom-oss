@@ -1,0 +1,89 @@
+.glowbom-live-settings {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 80px #0003;
+}
+.glowbom-live-settings[open] { display: flex; flex-direction: column; }
+.glowbom-live-settings::backdrop { background: #0006; }
+.glowbom-live-header, .glowbom-live-footer { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 22px 24px; }
+.glowbom-live-header { padding-bottom: 16px; }
+.glowbom-live-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.glowbom-live-title h2 { margin: 0; font-size: 21px; font-weight: 650; letter-spacing: -.4px; }
+.glowbom-live-preview { padding: 3px 7px; border-radius: 6px; background: var(--surface-soft); color: var(--muted); font-size: 11px; font-weight: 500; }
+.glowbom-live-header p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.glowbom-live-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; }
+.glowbom-live-footer { align-items: center; flex-wrap: wrap; padding-top: 16px; padding-bottom: 16px; border-top: 1px solid var(--border); }
+.glowbom-live-footer > button { margin-left: auto; }
+.glowbom-live-downloads { display: flex; align-items: center; gap: 2px; }
+.glowbom-live-download { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--text); font-size: 13px; font-weight: 500; text-decoration: none; border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; }
+.glowbom-live-download:hover, .glowbom-live-download-options summary:hover { background: var(--surface-soft); }
+.glowbom-live-download-options { position: relative; }
+.glowbom-live-download-options summary { display: grid; place-items: center; list-style: none; width: 32px; height: 40px; border-radius: 9px; cursor: pointer; color: var(--muted); }
+.glowbom-live-download-options summary::-webkit-details-marker { display: none; }
+.glowbom-live-download-menu { position: absolute; bottom: calc(100% + 12px); right: 0; z-index: 2; width: 224px; max-width: calc(100vw - 64px); padding: 5px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: 0 8px 32px #0002; }
+.glowbom-live-download-menu a { display: grid; gap: 3px; padding: 10px; border-radius: 7px; color: var(--text); text-decoration: none; font-size: 13px; }
+.glowbom-live-download-menu a:hover { background: var(--surface-soft); }
+.glowbom-live-download-menu small { font-size: 11px; color: var(--muted); }
+.glowbom-live-settings button, .glowbom-live-settings input { min-width: 0; border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
+.glowbom-live-settings button { min-height: 40px; cursor: pointer; }
+.glowbom-live-settings .glowbom-live-app-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 500; padding: 8px 10px; }
+.glowbom-live-launch-error { flex-basis: 100%; margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; }
+.glowbom-live-settings button:disabled, .glowbom-live-settings input:disabled { opacity: .55; cursor: default; }
+.glowbom-live-settings button:hover:not(:disabled) { background: var(--surface-soft); }
+.glowbom-live-settings input { width: 100%; min-height: 42px; }
+.glowbom-live-settings :focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.glowbom-live-settings .glowbom-live-icon { display: grid; place-items: center; flex: none; width: 36px; min-height: 36px; padding: 8px; border: 0; background: transparent; color: var(--muted); }
+.glowbom-live-settings svg { width: 20px; height: 20px; flex: none; }
+.glowbom-live-status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.glowbom-live-status { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 13px; font-weight: 500; }
+.glowbom-live-status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--muted); opacity: .5; }
+.glowbom-live-status-dot.is-connected { background: #23945b; opacity: 1; }
+.glowbom-live-status-dot.is-busy { width: 12px; height: 12px; background: transparent; border: 2px solid var(--border); border-top-color: var(--text); opacity: 1; animation: glowbom-live-spin .8s linear infinite; }
+.glowbom-live-form { display: grid; gap: 8px; }
+.glowbom-live-form label, .glowbom-live-disclosure-body label { font-size: 13px; font-weight: 500; margin: 8px 0 0; }
+.glowbom-live-input-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.glowbom-live-input-row input { flex: 1; }
+.glowbom-live-optional { margin-left: 5px; color: var(--muted); font-weight: 400; font-size: 12px; }
+.glowbom-live-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.glowbom-live-form > .glowbom-live-hint { margin-top: 2px; }
+.glowbom-live-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.glowbom-live-settings .glowbom-live-primary { background: var(--text); color: var(--surface); }
+.glowbom-live-settings .glowbom-live-primary:hover:not(:disabled) { background: var(--text); opacity: .85; }
+.glowbom-live-connection > .glowbom-live-hint, .glowbom-live-error { margin: 12px 0 0; }
+.glowbom-live-error { color: var(--danger); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.glowbom-live-connected-settings { margin-top: 18px; }
+.glowbom-live-disclosure { border-top: 1px solid var(--border); }
+.glowbom-live-disclosure summary { display: flex; align-items: center; gap: 8px; padding: 14px 0; list-style: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+.glowbom-live-disclosure summary::-webkit-details-marker { display: none; }
+.glowbom-live-disclosure summary::after { content: ''; width: 6px; height: 6px; margin: 0 4px 0 auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); color: var(--muted); }
+.glowbom-live-disclosure[open] > summary::after { transform: rotate(45deg); }
+.glowbom-live-disclosure-body { display: grid; gap: 9px; padding: 0 0 14px; }
+.glowbom-live-advanced { border-top: 0; }
+.glowbom-live-advanced summary { padding: 8px 0; color: var(--muted); }
+.glowbom-live-advanced .glowbom-live-disclosure-body { padding-bottom: 8px; }
+.glowbom-live-count { font-size: 11px; min-width: 20px; text-align: center; color: var(--muted); background: var(--surface-soft); padding: 1px 5px; border-radius: 5px; }
+.glowbom-live-disclosure-body .glowbom-live-status-row { margin-bottom: 0; }
+.glowbom-live-settings .glowbom-live-copy-token { display: inline-flex; align-items: center; justify-self: start; gap: 8px; }
+.glowbom-live-settings .buzz-members { margin: 0; }
+.glowbom-live-settings .buzz-members li > div { min-width: 0; }
+.glowbom-live-settings .buzz-members strong { font-size: 13px; }
+.glowbom-live-settings .buzz-id-copy { min-height: 28px; padding: 3px 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; }
+.glowbom-live-settings .buzz-id-copy:hover { background: transparent; }
+.glowbom-live-settings .buzz-avatar { width: 36px; height: 36px; flex-basis: 36px; font-size: 12px; }
+.glowbom-live-speech { display: grid; gap: 10px; }
+.glowbom-live-speech p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.glowbom-live-speech .field-label { margin: 0; font-size: 13px; font-weight: 500; }
+.glowbom-live-speech .row { gap: 8px; }
+.glowbom-live-speech .button { border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font-size: 12px; font-weight: 500; box-shadow: none; }
+.glowbom-live-speech .button:hover:not(:disabled) { transform: none; box-shadow: none; }
+@keyframes glowbom-live-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .glowbom-live-status-dot.is-busy { animation-duration: 2s; } }
+@media (max-width: 480px) {
+  .glowbom-live-header, .glowbom-live-footer { padding-left: 18px; padding-right: 18px; }
+  .glowbom-live-body { padding-left: 18px; padding-right: 18px; }
+}

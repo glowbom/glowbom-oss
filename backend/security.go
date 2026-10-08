@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -11,8 +12,10 @@ import (
 )
 
 type glowbomHealthResponse struct {
-	Name string `json:"name"`
-	OK   bool   `json:"ok"`
+	Name     string `json:"name"`
+	OK       bool   `json:"ok"`
+	Instance string `json:"instance,omitempty"`
+	LaunchID string `json:"launchId,omitempty"`
 }
 
 func backendBindHost() string {
@@ -22,6 +25,20 @@ func backendBindHost() string {
 		}
 	}
 	return "127.0.0.1"
+}
+
+func validateBackendSecurity() error {
+	if glowbomServerToken() != "" {
+		return nil
+	}
+	host := backendBindHost()
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return errors.New("GLOWBOM_SERVER_TOKEN is required for a non-loopback GLOWBOM_BIND_HOST; use glowbom start for local development")
 }
 
 func backendListenAddr(port string) string {
@@ -76,8 +93,10 @@ func glowbomHealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(glowbomHealthResponse{
-		Name: "Glowbom OSS",
-		OK:   true,
+		Name:     "Glowbom OSS",
+		OK:       true,
+		Instance: os.Getenv("GLOWBOM_INSTANCE"),
+		LaunchID: os.Getenv("GLOWBOM_LAUNCH_ID"),
 	})
 }
 
@@ -96,7 +115,8 @@ func withGlowbomSecurity(next http.Handler) http.Handler {
 			return
 		}
 
-		if token != "" && !hasValidGlowbomServerToken(r, token) {
+		// Video elements use a short-lived, single-asset ticket instead of the server token.
+		if token != "" && !hasValidGlowbomServerToken(r, token) && !studioClipPlaybackAllowed(r) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

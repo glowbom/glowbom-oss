@@ -1,6 +1,6 @@
 import { StackOpenMenu } from './StackOpenMenu';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { discoverStacks, formatPreviewCommand, parsePreviewCommand, previewRequest, type DiscoveredStack, type PreviewTarget } from '../lib/preview';
+import { discoverStacks, formatPreviewCommand, listedPreviewTargets, parsePreviewCommand, previewRequest, readPreviewTarget, resultPreviewTarget, writePreviewTarget, type DiscoveredStack, type PreviewTarget } from '../lib/preview';
 import { nextStackDirectory, type StackPreset } from '../lib/stack-presets';
 
 import { ExistingStacks } from './ExistingStacks';
@@ -8,22 +8,18 @@ import { StackPresetPicker } from './StackPresetPicker';
 
 const KIND_LABELS: Record<string, string> = { static: 'HTML', next: 'Next.js', vite: 'Vite', custom: 'Custom stack' };
 
-function savedPreviewTarget(projectPath: string): string {
-  try { return localStorage.getItem(`glowbom.previewTarget:${projectPath}`) || 'prototype'; }
-  catch { return 'prototype'; }
-}
-
-export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange, onStackAdded }: {
-  projectPath: string; runStatus: string; hidden: boolean;
+export function ProjectPreview({ projectPath, runStatus, runId, hidden, onShow, onTargetsChange, onStackAdded }: {
+  projectPath: string; runStatus: string; runId?: string; hidden: boolean; onShow?(): void;
   onTargetsChange: (projectPath: string, targets: PreviewTarget[]) => void;
   onStackAdded: (targetID: string) => void;
 }) {
   const [targets, setTargets] = useState<PreviewTarget[]>([]);
-  const [selected, setSelected] = useState(() => savedPreviewTarget(projectPath));
+  const [selected, setSelected] = useState(() => readPreviewTarget(projectPath) || 'prototype');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [frameVersion, setFrameVersion] = useState(0);
+  const [frameLoaded, setFrameLoaded] = useState(false);
   const [phone, setPhone] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredStack[]>([]);
@@ -65,8 +61,7 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
 
   useEffect(() => {
     if (!targets.some((target) => target.target === selected)) return;
-    try { localStorage.setItem(`glowbom.previewTarget:${projectPath}`, selected); }
-    catch { /* Preview remains usable when browser storage is unavailable. */ }
+    writePreviewTarget(projectPath, selected);
   }, [projectPath, selected, targets]);
 
   const update = useCallback((next: PreviewTarget[]) => {
@@ -108,9 +103,21 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
   }, [selected, current?.id, current?.revision, current?.kind]);
 
   useEffect(() => {
-    if (previousRun.current === 'running' && runStatus !== 'running') setFrameVersion((v) => v + 1);
+    if (previousRun.current === 'running' && runStatus !== 'running') { setFrameLoaded(false); setFrameVersion((v) => v + 1); }
     previousRun.current = runStatus;
   }, [runStatus]);
+
+  function showResultPreview() {
+    const target = resultPreviewTarget(targets);
+    if (!target) return;
+    setFrameLoaded(false);
+    setFrameVersion((value) => value + 1);
+    setSelected(target.target);
+    onShow?.();
+    if (target.status === 'running' && target.url) return;
+    void previewRequest(projectPath, 'start', { target: target.target, install: target.needsInstall }).then(update)
+      .catch((cause) => setError(cause instanceof Error ? cause.message : 'Could not start the result preview.'));
+  }
 
   const perform = async (action: 'start' | 'stop' | 'remove' | 'save' | 'terminal' | 'folder') => {
     setBusy(true);
@@ -199,7 +206,7 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
         <div className="preview-stack-selector">
           <StackOpenMenu projectPath={projectPath} target={current} disabled={busy} onTerminal={() => void perform('terminal')} />
         <div className="preview-tabs" role="group" aria-label="Preview target">
-          {targets.map((target) => (
+          {listedPreviewTargets(targets).map((target) => (
             <button className={`preview-tab ${selected === target.target ? 'selected' : ''}`} type="button" aria-pressed={selected === target.target} key={target.target} onClick={() => setSelected(target.target)} disabled={busy}>
               {target.name}<span>{target.previewMode === 'none' ? 'Native / terminal' : KIND_LABELS[target.kind] || (target.description ? 'Ready to build' : 'Not available')}</span>
             </button>
@@ -222,7 +229,7 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
           {editing === '' && !showFields ? <>
 
             <section className="new-stack-section" aria-label="Stack catalog">
-              <StackPresetPicker selected={connecting ? '__existing' : showFields ? preset : '__none'} disabled={busy} onChoose={choosePreset} existing={discovered} /></section>
+              <StackPresetPicker selected={connecting ? '__existing' : showFields ? preset : '__none'} disabled={busy} onChoose={choosePreset} existing={discovered} covered={[...(targets.some((target) => target.target === 'prototype') ? ['html'] : []), ...(discovered.some((app) => app.buildTarget === 'apple') ? ['swiftui'] : []), ...(discovered.some((app) => app.buildTarget === 'android') ? ['kotlin'] : [])]} /></section>
             <ExistingStacks apps={discovered.filter((app) => !app.buildTarget && !app.target && !targets.some((target) => target.directory === app.directory))} loading={discovering} error={discoveryError} limited={limited} disabled={busy || runStatus === 'running'} onRefresh={() => setScanVersion((v) => v + 1)} onAdd={connectExisting} />
           </> : null}
           {showFields ? <div className="stack-fields" ref={fieldsRef}>
@@ -250,7 +257,7 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
       {error || loadError || current?.error ? <p className="error-inline" role="alert">{error || loadError || current?.error}</p> : null}
       <div className={`preview-stage ${phone ? 'phone' : ''}`}>
         {current?.previewMode !== 'none' && current?.status === 'running' && current.url ? (
-          <iframe key={`${selected}:${current.id}:${frameVersion}`} src={current.url} title={`${current.name} preview`} sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-popups allow-pointer-lock" allowFullScreen referrerPolicy="no-referrer" />
+          <iframe key={`${selected}:${current.id}:${frameVersion}`} src={current.url} title={`${current.name} preview`} sandbox="allow-scripts allow-forms allow-same-origin allow-downloads allow-popups allow-pointer-lock" allowFullScreen referrerPolicy="no-referrer" onLoad={() => setFrameLoaded(true)} />
         ) : (
           <div className="preview-empty" role="status">
             <span className="preview-empty-icon" aria-hidden="true">▣</span>
@@ -268,7 +275,7 @@ export function ProjectPreview({ projectPath, runStatus, hidden, onTargetsChange
           {current?.target.startsWith('custom-') ? <><button className="preview-text-button" type="button" disabled={busy || runStatus === 'running'} onClick={() => edit(current)}>Edit</button><button className="preview-text-button" type="button" disabled={busy || runStatus === 'running'} onClick={() => void perform('remove')}>Remove</button></> : null}
         </div>
       </div>
-      {current?.logs?.length ? <details className="preview-logs" open={current.status === 'failed'}><summary>Preview logs</summary><pre>{current.logs.join('\n')}</pre></details> : null}
+      {current?.logs?.length ? <details className="preview-logs"><summary>Preview logs</summary><pre>{current.logs.join('\n')}</pre></details> : null}
     </section>
   );
 }

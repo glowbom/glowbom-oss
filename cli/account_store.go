@@ -45,6 +45,9 @@ func newCredentialStore(apiURL string) (accountStore, error) {
 		return nil, errors.New("GLOWBOM_CONFIG_DIR must be an absolute path outside your project")
 	}
 	store.file = filepath.Join(root, "accounts", store.key+".json")
+	if err := validateCredentialLocation(store.file); err != nil {
+		return nil, err
+	}
 	return store, nil
 }
 
@@ -61,6 +64,9 @@ func (s *credentialStore) Load() (accountCredentials, error) {
 		}
 		data = []byte(text)
 	} else {
+		if err := validateCredentialLocation(s.file); err != nil {
+			return value, err
+		}
 		if err := privateCredentialPath(s.file, false); err != nil {
 			return value, err
 		}
@@ -87,9 +93,15 @@ func (s *credentialStore) Save(value accountCredentials) error {
 		}
 		return nil
 	}
+	if err := validateCredentialLocation(s.file); err != nil {
+		return err
+	}
 	dir := filepath.Dir(s.file)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return errors.New("could not create the private credential directory")
+	}
+	if err := validateCredentialLocation(s.file); err != nil {
+		return err
 	}
 	if err := privateCredentialPath(s.file, true); err != nil {
 		return err
@@ -120,6 +132,9 @@ func (s *credentialStore) Delete() error {
 		}
 		return nil
 	}
+	if err := validateCredentialLocation(s.file); err != nil {
+		return err
+	}
 	if err := os.Remove(s.file); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errors.New("could not remove the local credential file")
 	}
@@ -148,4 +163,109 @@ func privateCredentialPath(path string, allowMissing bool) error {
 		return errors.New("the credential file must be private (mode 0600) and must not be a symlink")
 	}
 	return nil
+}
+
+var errCredentialInProject = errors.New("credential files must be outside projects and source checkouts; use the system keyring or a private GLOWBOM_CONFIG_DIR")
+
+// Check both the selected path and its target, including ancestors of directories
+// that do not exist yet. A symlink must not move credentials into a checkout.
+func validateCredentialLocation(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("the credential file path must be absolute")
+	}
+	resolved, err := resolveCredentialLocation(path)
+	if err != nil {
+		return errors.New("could not resolve the credential location safely")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return errors.New("could not determine the working directory for credential storage")
+	}
+	home, _ := os.UserHomeDir()
+	// An unmarked working folder may be a new project. Home and the filesystem
+	// root alone are not projects, so installed CLI commands still work there.
+	protectWorkingDirectory := filepath.Dir(cwd) != cwd && !sameCredentialDirectory(cwd, home)
+	for _, candidate := range []string{filepath.Clean(path), resolved} {
+		for dir := filepath.Dir(candidate); ; dir = filepath.Dir(dir) {
+			if credentialProjectDirectory(dir) || (protectWorkingDirectory && sameCredentialDirectory(dir, cwd)) {
+				return errCredentialInProject
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func credentialProjectDirectory(dir string) bool {
+	// Only inspect marker metadata, never repository internals or project data.
+	for _, marker := range []string{
+		".git", ".hg", ".svn", "glowbom.json", ".glowbom/studio.json",
+		".glowbom/chat.json", "project-book/book.json",
+	} {
+		if _, err := os.Lstat(filepath.Join(dir, marker)); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+	}
+	// Source exports also work before a repository or module has been initialized.
+	if isDir(filepath.Join(dir, "backend")) && isDir(filepath.Join(dir, "web")) {
+		return true
+	}
+	// A manifest left in home or shared temporary storage must not make all
+	// user configuration a project. Explicit repositories above still count.
+	home, _ := os.UserHomeDir()
+	if filepath.Dir(dir) == dir || sameCredentialDirectory(dir, home) ||
+		sameCredentialDirectory(dir, os.TempDir()) || sameCredentialDirectory(dir, "/tmp") ||
+		sameCredentialDirectory(dir, "/var/tmp") {
+		return false
+	}
+	for _, marker := range []string{
+		"package.json", "go.mod", "go.work",
+		"Cargo.toml", "pubspec.yaml", "pyproject.toml", "requirements.txt", "Package.swift",
+		"project.godot", "build.gradle", "build.gradle.kts", "pom.xml", "CMakeLists.txt",
+	} {
+		if _, err := os.Lstat(filepath.Join(dir, marker)); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameCredentialDirectory(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	first, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	second, err := os.Stat(b)
+	return err == nil && os.SameFile(first, second)
+}
+
+func resolveCredentialLocation(path string) (string, error) {
+	path = filepath.Clean(path)
+	var missing []string
+	for {
+		_, err := os.Lstat(path)
+		if err == nil {
+			resolved, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				return "", err
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) || filepath.Dir(path) == path {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(path))
+		path = filepath.Dir(path)
+	}
 }

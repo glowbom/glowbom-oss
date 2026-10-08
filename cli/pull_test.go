@@ -92,7 +92,7 @@ func TestPullCommandHelpAndInvalidOptionsDoNotNeedLogin(t *testing.T) {
 	if run([]string{"pull", "--help"}) != 0 {
 		t.Fatal("pull help failed")
 	}
-	for _, args := range [][]string{{"pull", "--unknown"}, {"pull", "folder"}, {"pull", "--output"}} {
+	for _, args := range [][]string{{"pull", "--unknown"}, {"pull", "--json"}, {"pull", "folder"}, {"pull", "--output"}} {
 		if run(args) != 2 {
 			t.Fatalf("invalid arguments did not produce usage failure: %q", args)
 		}

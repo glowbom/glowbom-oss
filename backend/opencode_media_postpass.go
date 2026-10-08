@@ -1,13 +1,17 @@
 package main
 
 import (
+	bytespkg "bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -33,18 +37,38 @@ var (
 )
 
 type OpenCodeMediaPostPassRequest struct {
-	ProjectPath          string   `json:"projectPath"`
-	ImageSource          string   `json:"imageSource,omitempty"`
-	OpenAIKey            string   `json:"openaiKey,omitempty"`
-	GeminiKey            string   `json:"geminiKey,omitempty"`
-	XaiKey               string   `json:"xaiKey,omitempty"`
-	VeoGeminiKey         string   `json:"veoGeminiKey,omitempty"`
-	ElevenLabsKey        string   `json:"elevenLabsKey,omitempty"`
-	ElevenLabsVoiceID    string   `json:"elevenLabsVoiceID,omitempty"`
-	ElevenLabsVoiceModel string   `json:"elevenLabsVoiceModel,omitempty"`
-	ReferenceImagePath   string   `json:"referenceImagePath,omitempty"`
-	ReferenceAssetID     string   `json:"referenceAssetID,omitempty"`
-	ScanTargets          []string `json:"scanTargets,omitempty"`
+	ProjectPath                  string                      `json:"projectPath"`
+	Items                        []OpenCodeMediaApprovalItem `json:"items,omitempty"`
+	ImageAPIKeys                 map[string]string           `json:"imageApiKeys,omitempty"`
+	ImageUseSavedKey             bool                        `json:"imageUseSavedKey,omitempty"`
+	VideoAPIKeys                 map[string]string           `json:"videoApiKeys,omitempty"`
+	previousImageReferences      *prototypeImageReferenceSnapshot
+	currentPrototypeHTML         string
+	imageReferenceOrigin         string
+	imageAspectRatio             string
+	imageOptions                 *studioImageOptions
+	imageContext                 context.Context
+	assetIdentity                string
+	approvedImage                bool
+	glowbomAuthorized            bool
+	imageSavedKeyAuthorized      bool
+	imageSubscriptionAuthorized  bool
+	elevenLabsSavedKeyAuthorized bool
+	videoSavedKeyAuthorized      bool
+	videoSubscriptionAuthorized  bool
+	VideoUseSavedKey             bool     `json:"videoUseSavedKey,omitempty"`
+	ImageSource                  string   `json:"imageSource,omitempty"`
+	OpenAIKey                    string   `json:"openaiKey,omitempty"`
+	GeminiKey                    string   `json:"geminiKey,omitempty"`
+	XaiKey                       string   `json:"xaiKey,omitempty"`
+	VeoGeminiKey                 string   `json:"veoGeminiKey,omitempty"`
+	ElevenLabsKey                string   `json:"elevenLabsKey,omitempty"`
+	ElevenLabsUseSavedKey        bool     `json:"elevenLabsUseSavedKey,omitempty"`
+	ElevenLabsVoiceID            string   `json:"elevenLabsVoiceID,omitempty"`
+	ElevenLabsVoiceModel         string   `json:"elevenLabsVoiceModel,omitempty"`
+	ReferenceImagePath           string   `json:"referenceImagePath,omitempty"`
+	ReferenceAssetID             string   `json:"referenceAssetID,omitempty"`
+	ScanTargets                  []string `json:"scanTargets,omitempty"`
 }
 
 type OpenCodeMediaPostPassResponse struct {
@@ -64,6 +88,7 @@ type OpenCodeMediaAsset struct {
 	RelativePath  string `json:"relativePath"`
 	SourceService string `json:"sourceService,omitempty"`
 	StudioAssetID string `json:"studioAssetId,omitempty"`
+	UsagePrompt   string `json:"usagePrompt,omitempty"`
 }
 
 type OpenCodePlatformCopy struct {
@@ -79,10 +104,14 @@ type postPassImageRef struct {
 }
 
 type postPassVideoPlaceholder struct {
-	token       string
-	prompt      string
-	fromKey     string
-	aspectRatio string
+	token           string
+	prompt          string
+	fromKey         string
+	aspectRatio     string
+	sourceID        string
+	modelID         string
+	durationSeconds int
+	resolution      string
 }
 
 type postPassAudioPlaceholder struct {
@@ -95,6 +124,7 @@ type postPassAudioPlaceholder struct {
 	promptInfluence   *float64
 	loop              bool
 	forceInstrumental bool
+	explicitSettings  bool
 }
 
 type studioAssetRecord struct {
@@ -117,6 +147,7 @@ type prototypeAssetsManifestItem struct {
 	Dimensions    map[string]int `json:"dimensions,omitempty"`
 	SourceService string         `json:"sourceService,omitempty"`
 	MediaType     string         `json:"mediaType,omitempty"`
+	UsagePrompt   string         `json:"usagePrompt,omitempty"`
 }
 
 type platformAssetsMap struct {
@@ -142,7 +173,7 @@ func openCodeMediaPostPassHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req OpenCodeMediaPostPassRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 36*1024*1024)).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -150,6 +181,37 @@ func openCodeMediaPostPassHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.ProjectPath) == "" {
 		http.Error(w, "projectPath is required", http.StatusBadRequest)
 		return
+	}
+	if req.ElevenLabsUseSavedKey && strings.TrimSpace(req.ElevenLabsKey) == "" {
+		if !authorizeVoiceKey(w, r) {
+			return
+		}
+		req.elevenLabsSavedKeyAuthorized = true
+	}
+	if req.VideoUseSavedKey {
+		if !authorizeVoiceKey(w, r) {
+			return
+		}
+		req.videoSavedKeyAuthorized = true
+	}
+	if req.ImageUseSavedKey || postPassUsesImageSubscription(req) {
+		if !authorizeVoiceKey(w, r) {
+			return
+		}
+		req.imageSavedKeyAuthorized = req.ImageUseSavedKey
+		req.imageSubscriptionAuthorized = postPassUsesImageSubscription(req)
+	}
+	if mediaApprovalUsesVideoSubscription(req.Items) && !authorizeVoiceKey(w, r) {
+		return
+	}
+	token := glowbomServerToken()
+	req.videoSubscriptionAuthorized = token != "" && hasValidGlowbomServerToken(r, token)
+
+	if postPassUsesGlowbom(req) {
+		if !authorizeGlowbomImage(w, r) {
+			return
+		}
+		req.glowbomAuthorized = true
 	}
 
 	log.Printf("[OPENCODE][MEDIA] post-pass requested: project=%s, scanTargets=%d", req.ProjectPath, len(req.ScanTargets))
@@ -164,6 +226,25 @@ func openCodeMediaPostPassHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequest) (*OpenCodeMediaPostPassResponse, error) {
+	if req.ImageUseSavedKey && !req.imageSavedKeyAuthorized {
+		return nil, fmt.Errorf("Local authentication is required to use saved image keys.")
+	}
+	if postPassUsesImageSubscription(req) && !req.imageSubscriptionAuthorized {
+		return nil, fmt.Errorf("Local authentication is required to use a connected image subscription.")
+	}
+	if err := validateMediaAPIKeys(req.ImageAPIKeys); err != nil {
+		return nil, err
+	}
+	if err := validateMediaAPIKeys(req.VideoAPIKeys); err != nil {
+		return nil, err
+	}
+	req.Items = normalizeMediaApprovalItems(req.Items)
+	for _, item := range req.Items {
+		if err := validateMediaApprovalItem(item); err != nil {
+			return nil, err
+		}
+	}
+	req.imageContext = ctx
 	resp := &OpenCodeMediaPostPassResponse{
 		GeneratedAssets:    []OpenCodeMediaAsset{},
 		ReusedStudioAssets: []OpenCodeMediaAsset{},
@@ -185,8 +266,14 @@ func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequ
 	if req.ImageSource == "" {
 		req.ImageSource = openAIImageSourceLabel
 	}
+	if centralKey := strings.TrimSpace(req.ImageAPIKeys["gemini-api"]); centralKey != "" {
+		req.VeoGeminiKey = centralKey
+	}
 	if req.VeoGeminiKey == "" {
 		req.VeoGeminiKey = req.GeminiKey
+	}
+	if req.VeoGeminiKey == "" {
+		req.VeoGeminiKey = projectIconAPIKey("gemini-api")
 	}
 	if strings.TrimSpace(req.ElevenLabsVoiceModel) == "" {
 		req.ElevenLabsVoiceModel = defaultElevenVoiceModel
@@ -205,8 +292,8 @@ func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequ
 	}
 
 	referenceImageBase64, _, refErr := resolveReferenceImage(req, projectPath, studioAssets)
-	if refErr != nil {
-		resp.Warnings = append(resp.Warnings, fmt.Sprintf("Reference image unavailable: %s", sanitizeProviderError(refErr)))
+	if refErr != nil && req.Items == nil {
+		return nil, fmt.Errorf("Reference image unavailable: %s", sanitizeProviderError(refErr))
 	}
 
 	imageRefsByPrompt := make(map[string]postPassImageRef)
@@ -221,6 +308,14 @@ func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequ
 		} else if len(voices) > 0 {
 			req.ElevenLabsVoiceID = strings.TrimSpace(voices[0].VoiceID)
 			log.Printf("[OPENCODE][MEDIA][AUDIO] using account default voice_id=%s for post-pass", req.ElevenLabsVoiceID)
+		}
+	}
+
+	var approvedReplacements map[string]string
+	if req.Items != nil {
+		approvedReplacements, err = materializeApprovedMedia(ctx, req, projectPath, studioAssets, resp)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -246,74 +341,82 @@ func runOpenCodeMediaPostPass(ctx context.Context, req OpenCodeMediaPostPassRequ
 		original := string(data)
 		updated := original
 
-		imagePlaceholders := extractImagePlaceholders(updated)
-		for _, placeholder := range imagePlaceholders {
-			prompt := strings.TrimSpace(placeholder.Prompt)
-			if prompt == "" {
-				continue
+		if req.Items != nil {
+			for token, path := range approvedReplacements {
+				updated = strings.ReplaceAll(updated, token, path)
+			}
+		} else {
+			imagePlaceholders := extractImagePlaceholders(updated)
+			for _, placeholder := range imagePlaceholders {
+				prompt := strings.TrimSpace(placeholder.Prompt)
+				if prompt == "" {
+					continue
+				}
+
+				ref, ok := imageRefsByPrompt[normalizedLookupKey(prompt)]
+				if !ok {
+					imageReq := req
+					imageReq.currentPrototypeHTML = original
+					ref, err = materializeImagePlaceholder(imageReq, projectPath, prompt, placeholder.Token, referenceImageBase64, studioAssets, resp)
+					if err != nil {
+						resp.Warnings = append(resp.Warnings, err.Error())
+						continue
+					}
+
+					imageRefsByPrompt[normalizedLookupKey(prompt)] = ref
+					registerImageRefKeys(imageRefsByKey, ref)
+				}
+
+				updated = strings.ReplaceAll(updated, placeholder.Token, "assets/"+ref.asset.Filename)
 			}
 
-			ref, ok := imageRefsByPrompt[normalizedLookupKey(prompt)]
-			if !ok {
-				ref, err = materializeImagePlaceholder(req, projectPath, prompt, placeholder.Token, referenceImageBase64, studioAssets, resp)
+			videoPlaceholders := extractVideoPlaceholders(updated)
+			for _, placeholder := range videoPlaceholders {
+				cacheKey := normalizedLookupKey(fmt.Sprintf("%s|%s|%s|%s|%s|%d|%s", placeholder.prompt, placeholder.fromKey, placeholder.aspectRatio, placeholder.sourceID, placeholder.modelID, placeholder.durationSeconds, placeholder.resolution))
+				if existing, ok := videoCache[cacheKey]; ok {
+					updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+existing.Filename)
+					continue
+				}
+
+				videoAsset, err := materializeVideoPlaceholder(ctx, req, projectPath, placeholder, imageRefsByKey, studioAssets, resp)
 				if err != nil {
 					resp.Warnings = append(resp.Warnings, err.Error())
 					continue
 				}
 
-				imageRefsByPrompt[normalizedLookupKey(prompt)] = ref
-				registerImageRefKeys(imageRefsByKey, ref)
+				videoCache[cacheKey] = videoAsset
+				updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+videoAsset.Filename)
 			}
 
-			updated = strings.ReplaceAll(updated, placeholder.Token, "assets/"+ref.asset.Filename)
+			audioPlaceholders := extractAudioPlaceholders(updated)
+			for _, placeholder := range audioPlaceholders {
+				cacheKey := normalizedLookupKey(fmt.Sprintf(
+					"%s|%s|%s|%s|%s|%.3f|%t|%t",
+					placeholder.prompt,
+					placeholder.audioType,
+					placeholder.voiceID,
+					placeholder.modelID,
+					floatPointerKey(placeholder.promptInfluence),
+					placeholder.durationSeconds,
+					placeholder.loop,
+					placeholder.forceInstrumental,
+				))
+				if existing, ok := audioCache[cacheKey]; ok {
+					updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+existing.Filename)
+					continue
+				}
+
+				audioAsset, err := materializeAudioPlaceholder(req, projectPath, placeholder, studioAssets, resp)
+				if err != nil {
+					resp.Warnings = append(resp.Warnings, err.Error())
+					continue
+				}
+
+				audioCache[cacheKey] = audioAsset
+				updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+audioAsset.Filename)
+			}
+
 		}
-
-		videoPlaceholders := extractVideoPlaceholders(updated)
-		for _, placeholder := range videoPlaceholders {
-			cacheKey := normalizedLookupKey(fmt.Sprintf("%s|%s|%s", placeholder.prompt, placeholder.fromKey, placeholder.aspectRatio))
-			if existing, ok := videoCache[cacheKey]; ok {
-				updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+existing.Filename)
-				continue
-			}
-
-			videoAsset, err := materializeVideoPlaceholder(ctx, req, projectPath, placeholder, imageRefsByKey, studioAssets, resp)
-			if err != nil {
-				resp.Warnings = append(resp.Warnings, err.Error())
-				continue
-			}
-
-			videoCache[cacheKey] = videoAsset
-			updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+videoAsset.Filename)
-		}
-
-		audioPlaceholders := extractAudioPlaceholders(updated)
-		for _, placeholder := range audioPlaceholders {
-			cacheKey := normalizedLookupKey(fmt.Sprintf(
-				"%s|%s|%s|%s|%s|%.3f|%t|%t",
-				placeholder.prompt,
-				placeholder.audioType,
-				placeholder.voiceID,
-				placeholder.modelID,
-				floatPointerKey(placeholder.promptInfluence),
-				placeholder.durationSeconds,
-				placeholder.loop,
-				placeholder.forceInstrumental,
-			))
-			if existing, ok := audioCache[cacheKey]; ok {
-				updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+existing.Filename)
-				continue
-			}
-
-			audioAsset, err := materializeAudioPlaceholder(req, projectPath, placeholder, studioAssets, resp)
-			if err != nil {
-				resp.Warnings = append(resp.Warnings, err.Error())
-				continue
-			}
-
-			audioCache[cacheKey] = audioAsset
-			updated = strings.ReplaceAll(updated, placeholder.token, "assets/"+audioAsset.Filename)
-		}
-
 		if updated != original {
 			if err := os.WriteFile(targetPath, []byte(updated), 0644); err != nil {
 				resp.Warnings = append(resp.Warnings, fmt.Sprintf("Failed to update %s: %s", rawTarget, sanitizeProviderError(err)))
@@ -362,12 +465,20 @@ func materializeImagePlaceholder(
 	studioAssets []studioAssetRecord,
 	resp *OpenCodeMediaPostPassResponse,
 ) (postPassImageRef, error) {
-	if strings.TrimSpace(referenceImageBase64) == "" {
+	if req.imageOptions != nil {
+		options, err := normalizeStudioImageOptions(*req.imageOptions)
+		if err != nil {
+			return postPassImageRef{}, err
+		}
+		req.imageOptions = &options
+		req.ImageSource, req.imageAspectRatio = options.SourceID, options.AspectRatio
+	}
+	if !req.approvedImage && req.imageOptions == nil && strings.TrimSpace(referenceImageBase64) == "" {
 		if studioAsset, ok := findStudioAssetByPrompt(studioAssets, "image", prompt, req.ImageSource); ok {
 			bytes, mimeType, err := decodeBase64Payload(studioAsset.DataBase64, "image/png")
 			if err == nil {
 				ext := imageExtensionForMimeType(mimeType)
-				filename := deterministicAssetFilename("img", prompt, ext)
+				filename := postPassAssetFilename(req, "img", prompt, ext)
 				relativePath, err := writePrototypeAsset(projectPath, filename, bytes, map[string]struct{}{
 					".png":  {},
 					".jpg":  {},
@@ -391,8 +502,25 @@ func materializeImagePlaceholder(
 		}
 	}
 
+	if req.Items == nil && referenceImageBase64 == "" && req.previousImageReferences != nil {
+		previous, err := resolvePreviousPrototypeImageReference(req.previousImageReferences, req.currentPrototypeHTML, placeholderToken, postPassImageSourceID(req))
+		if err != nil {
+			return postPassImageRef{}, err
+		}
+		if previous != "" {
+			referenceImageBase64 = previous
+			req.imageReferenceOrigin = "previous-image"
+		}
+	}
 	dataURI, sourceService, err := generateImageForPostPass(req, prompt, referenceImageBase64)
 	if err != nil {
+		if req.imageReferenceOrigin == "previous-image" && referenceImageBase64 != "" {
+			previous, restoreErr := materializePreviousImageReference(projectPath, prompt, placeholderToken, referenceImageBase64, resp)
+			if restoreErr == nil {
+				resp.Warnings = append(resp.Warnings, fmt.Sprintf("Image generation failed for %q. The previous image was kept; no retry was made.", prompt))
+				return previous, nil
+			}
+		}
 		return postPassImageRef{}, fmt.Errorf("image generation failed for %q: %s", prompt, sanitizeProviderError(err))
 	}
 
@@ -401,8 +529,18 @@ func materializeImagePlaceholder(
 		return postPassImageRef{}, fmt.Errorf("generated image decode failed for %q: %s", prompt, sanitizeProviderError(err))
 	}
 
+	if req.approvedImage {
+		bytes, err = normalizeStudioGeneratedImage(bytes)
+		if err != nil {
+			return postPassImageRef{}, fmt.Errorf("The selected source returned an unsupported image. No retry was made.")
+		}
+		mimeType = "image/png"
+		if err := validateGeneratedImageAspect(bytes, req.imageAspectRatio); err != nil {
+			return postPassImageRef{}, err
+		}
+	}
 	ext := imageExtensionForMimeType(mimeType)
-	filename := deterministicAssetFilename("img", prompt, ext)
+	filename := postPassAssetFilename(req, "img", prompt, ext)
 	relativePath, err := writePrototypeAsset(projectPath, filename, bytes, map[string]struct{}{
 		".png":  {},
 		".jpg":  {},
@@ -421,6 +559,29 @@ func materializeImagePlaceholder(
 		RelativePath:  relativePath,
 		SourceService: sourceService,
 	}
+	if normalized, normalizeErr := normalizeStudioGeneratedImage(bytes); normalizeErr == nil {
+		config, _, _ := image.DecodeConfig(bytespkg.NewReader(normalized))
+		options := studioSaveOptions{Prompt: prompt, Source: sourceService, AspectRatio: req.imageAspectRatio, NewGeneration: true, Dimensions: &studioDimensions{Width: config.Width, Height: config.Height}}
+		if req.imageOptions != nil {
+			options.SourceID, options.Model = req.imageOptions.SourceID, req.imageOptions.ModelID
+			options.Resolution, options.Quality = req.imageOptions.Resolution, req.imageOptions.Quality
+		}
+		record, saveErr := linkStudioProjectImage(projectPath, relativePath, normalized, options)
+		if saveErr != nil {
+			// Keep the generated project file and save an independent Studio copy
+			// when the project link cannot be recorded.
+			options.DataURI, options.MediaType = dataURI, "image"
+			record, studioErr := saveStudioAsset(options)
+			if studioErr == nil {
+				asset.StudioAssetID = record.ID
+			}
+			resp.Warnings = append(resp.Warnings, "The image was generated, but its Studio project link could not be saved.")
+		} else {
+			asset.StudioAssetID = record.ID
+		}
+	} else {
+		resp.Warnings = append(resp.Warnings, "The image was generated, but it could not be saved to Studio.")
+	}
 	resp.GeneratedAssets = append(resp.GeneratedAssets, asset)
 	return postPassImageRef{asset: asset, bytes: bytes, mimeType: mimeType}, nil
 }
@@ -434,21 +595,36 @@ func materializeVideoPlaceholder(
 	studioAssets []studioAssetRecord,
 	resp *OpenCodeMediaPostPassResponse,
 ) (OpenCodeMediaAsset, error) {
-	if req.VeoGeminiKey == "" {
-		return OpenCodeMediaAsset{}, fmt.Errorf("missing veoGeminiKey for glowbyvideo:%s", placeholder.prompt)
+	if placeholder.sourceID == "" {
+		placeholder.sourceID = "veo-api"
 	}
-
+	options, err := normalizeStudioVideoOptions(studioVideoOptions{SourceID: placeholder.sourceID, ModelID: placeholder.modelID, DurationSeconds: placeholder.durationSeconds, Resolution: placeholder.resolution, AspectRatio: placeholder.aspectRatio})
+	if err != nil {
+		return OpenCodeMediaAsset{}, err
+	}
+	if req.assetIdentity == "" {
+		settings, _ := json.Marshal(struct {
+			Options       studioVideoOptions
+			StartingImage string
+		}{options, placeholder.fromKey})
+		digest := sha256.Sum256(settings)
+		req.assetIdentity = fmt.Sprintf("video-%x", digest[:12])
+	}
+	key, err := resolvePostPassVideoKey(ctx, req, options.SourceID)
+	if err != nil {
+		return OpenCodeMediaAsset{}, err
+	}
 	fromRef, err := resolveVideoStartFrame(placeholder.fromKey, imageRefsByKey, studioAssets, req.ImageSource)
 	if err != nil {
 		return OpenCodeMediaAsset{}, fmt.Errorf("video source resolution failed for %q: %s", placeholder.prompt, sanitizeProviderError(err))
 	}
 
-	videoBytes, err := generateVeoVideoFromImage(ctx, placeholder.prompt, placeholder.aspectRatio, req.VeoGeminiKey, fromRef.bytes, fromRef.mimeType)
+	videoBytes, err := generatePostPassVideo(ctx, placeholder.prompt, options, key, fromRef.bytes, fromRef.mimeType)
 	if err != nil {
 		return OpenCodeMediaAsset{}, fmt.Errorf("video generation failed for %q: %s", placeholder.prompt, sanitizeProviderError(err))
 	}
 
-	filename := deterministicAssetFilename("video", placeholder.prompt, ".mp4")
+	filename := postPassAssetFilename(req, "video", placeholder.prompt, ".mp4")
 	relativePath, err := writePrototypeAsset(projectPath, filename, videoBytes, map[string]struct{}{
 		".mp4": {},
 	}, maxGeneratedVideoBytes)
@@ -462,7 +638,21 @@ func materializeVideoPlaceholder(
 		MediaType:     "video",
 		Filename:      filename,
 		RelativePath:  relativePath,
-		SourceService: "Veo",
+		SourceService: studioVideoSourceLabel(options),
+	}
+	saveOptions := studioSaveOptions{
+		NewGeneration: true, Prompt: placeholder.prompt, MediaType: "video", Source: asset.SourceService,
+		DataURI:  "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(videoBytes),
+		SourceID: options.SourceID, Model: options.ModelID, Resolution: options.Resolution,
+		AspectRatio: options.AspectRatio, RequestedDurationSeconds: float64(options.DurationSeconds),
+	}
+	if project, err := registerStudioProject(projectPath); err == nil {
+		saveOptions.SourceProjectID, saveOptions.UsedInProjects = project.ID, []string{project.ID}
+	}
+	if saved, err := saveStudioAsset(saveOptions); err == nil {
+		asset.StudioAssetID = saved.ID
+	} else {
+		resp.Warnings = append(resp.Warnings, "The video was generated for the project, but it could not be saved to Studio.")
 	}
 	resp.GeneratedAssets = append(resp.GeneratedAssets, asset)
 	return asset, nil
@@ -479,11 +669,11 @@ func materializeAudioPlaceholder(
 		return OpenCodeMediaAsset{}, fmt.Errorf("audio placeholder prompt is empty")
 	}
 
-	if studioAsset, ok := findStudioAssetByPrompt(studioAssets, "audio", placeholder.prompt, "ElevenLabs"); ok {
+	if studioAsset, ok := findReusablePostPassAudio(studioAssets, placeholder); ok && !req.approvedImage {
 		bytes, mimeType, err := decodeBase64Payload(studioAsset.DataBase64, "audio/mpeg")
 		if err == nil {
 			ext := audioExtensionForMimeType(mimeType)
-			filename := deterministicAssetFilename("audio", placeholder.prompt, ext)
+			filename := postPassAssetFilename(req, "audio", placeholder.prompt, ext)
 			relativePath, err := writePrototypeAsset(projectPath, filename, bytes, map[string]struct{}{
 				".mp3":  {},
 				".wav":  {},
@@ -507,10 +697,23 @@ func materializeAudioPlaceholder(
 			}
 		}
 	}
+	settings, err := postPassElevenLabsAudioRequest(placeholder, req.ElevenLabsVoiceID, req.ElevenLabsVoiceModel)
+	if err != nil {
+		return OpenCodeMediaAsset{}, err
+	}
+	if req.assetIdentity == "" {
+		encoded, _ := json.Marshal(settings)
+		digest := sha256.Sum256(encoded)
+		req.assetIdentity = fmt.Sprintf("audio-%x", digest[:12])
+	}
 
-	audioBytes, mimeType, sourceService, err := generateElevenLabsAudioForPostPass(
+	apiKey, err := resolvePostPassAudioKey(req, systemVoiceKeyStore{})
+	if err != nil {
+		return OpenCodeMediaAsset{}, err
+	}
+	audioBytes, mimeType, sourceService, err := generatePostPassAudio(
 		placeholder,
-		strings.TrimSpace(req.ElevenLabsKey),
+		apiKey,
 		strings.TrimSpace(req.ElevenLabsVoiceID),
 		strings.TrimSpace(req.ElevenLabsVoiceModel),
 	)
@@ -519,7 +722,7 @@ func materializeAudioPlaceholder(
 	}
 
 	ext := audioExtensionForMimeType(mimeType)
-	filename := deterministicAssetFilename("audio", placeholder.prompt, ext)
+	filename := postPassAssetFilename(req, "audio", placeholder.prompt, ext)
 	relativePath, err := writePrototypeAsset(projectPath, filename, audioBytes, map[string]struct{}{
 		".mp3":  {},
 		".wav":  {},
@@ -540,8 +743,47 @@ func materializeAudioPlaceholder(
 		RelativePath:  relativePath,
 		SourceService: sourceService,
 	}
+	model, voiceID := settings.SoundModel, ""
+	if settings.AudioType == "music" {
+		model = settings.MusicModel
+	} else if settings.AudioType == "voice" {
+		model, voiceID = settings.VoiceModel, settings.VoiceID
+	}
+	options := studioSaveOptions{
+		NewGeneration: true, Prompt: placeholder.prompt, MediaType: "audio", Source: sourceService,
+		DataURI:   "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(audioBytes),
+		AudioType: settings.AudioType, MimeType: mimeType, Model: model, VoiceID: voiceID,
+		OutputFormat: settings.OutputFormat, RequestedDurationSeconds: settings.DurationSeconds,
+		PromptInfluence: settings.PromptInfluence, Loop: settings.Loop, ForceInstrumental: settings.ForceInstrumental,
+	}
+	if project, err := registerStudioProject(projectPath); err == nil {
+		options.SourceProjectID, options.UsedInProjects = project.ID, []string{project.ID}
+	}
+	if saved, err := saveStudioAsset(options); err == nil {
+		asset.StudioAssetID = saved.ID
+	} else {
+		resp.Warnings = append(resp.Warnings, "The audio was generated for the project, but it could not be saved to Studio.")
+	}
 	resp.GeneratedAssets = append(resp.GeneratedAssets, asset)
 	return asset, nil
+}
+
+func resolvePostPassAudioKey(req OpenCodeMediaPostPassRequest, store voiceKeyStore) (string, error) {
+	key := strings.TrimSpace(req.ElevenLabsKey)
+	if key != "" || !req.ElevenLabsUseSavedKey {
+		return key, nil
+	}
+	if !req.elevenLabsSavedKeyAuthorized {
+		return "", fmt.Errorf("Local authentication is required to use the saved ElevenLabs key.")
+	}
+	key, err := store.Get()
+	if err != nil {
+		return "", fmt.Errorf("Could not access the saved voice key. Unlock your system credential store.")
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", fmt.Errorf("Add your ElevenLabs key in Voice settings.")
+	}
+	return strings.TrimSpace(key), nil
 }
 
 func generateElevenLabsAudioForPostPass(
@@ -553,6 +795,36 @@ func generateElevenLabsAudioForPostPass(
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, "", "", fmt.Errorf("missing elevenLabsKey for glowbyaudio:%s", placeholder.prompt)
 	}
+	req, err := postPassElevenLabsAudioRequest(placeholder, defaultVoiceID, defaultVoiceModel)
+	if err != nil {
+		return nil, "", "", err
+	}
+	audioType := req.AudioType
+	var audioBytes []byte
+	var mimeType string
+	switch audioType {
+	case "voice":
+		log.Printf("[OPENCODE][MEDIA][AUDIO] generating voice prompt_len=%d voice_id=%s model=%s", len(req.Prompt), req.VoiceID, req.VoiceModel)
+		audioBytes, mimeType, err = callElevenLabsVoice(req, apiKey)
+	case "sound":
+		log.Printf("[OPENCODE][MEDIA][AUDIO] generating sound prompt_len=%d model=%s", len(req.Prompt), req.SoundModel)
+		audioBytes, mimeType, err = callElevenLabsSound(req, apiKey)
+	case "music":
+		log.Printf("[OPENCODE][MEDIA][AUDIO] generating music prompt_len=%d model=%s", len(req.Prompt), req.MusicModel)
+		audioBytes, mimeType, err = callElevenLabsMusic(req, apiKey)
+	default:
+		return nil, "", "", fmt.Errorf("unsupported audio type: %s", audioType)
+	}
+	if err != nil {
+		log.Printf("[OPENCODE][MEDIA][AUDIO] generation failed type=%s err=%s", audioType, sanitizeProviderError(err))
+		return nil, "", "", err
+	}
+	log.Printf("[OPENCODE][MEDIA][AUDIO] generation succeeded type=%s bytes=%d mime=%s", audioType, len(audioBytes), mimeType)
+	sourceService := map[string]string{"voice": "ElevenLabs (Voice)", "sound": "ElevenLabs (Sound FX)", "music": "ElevenLabs (Music)"}[audioType]
+	return audioBytes, mimeType, sourceService, nil
+}
+
+func postPassElevenLabsAudioRequest(placeholder postPassAudioPlaceholder, defaultVoiceID, defaultVoiceModel string) (ElevenLabsAudioRequest, error) {
 
 	audioType := normalizePostPassAudioType(placeholder.audioType, placeholder.prompt)
 	voiceID := strings.TrimSpace(placeholder.voiceID)
@@ -589,169 +861,223 @@ func generateElevenLabsAudioForPostPass(
 	case "music":
 		req.MusicModel = modelID
 	}
+	return normalizeElevenLabsAudioRequest(req)
+}
 
-	var (
-		audioBytes []byte
-		mimeType   string
-		err        error
-	)
+func findReusablePostPassAudio(assets []studioAssetRecord, placeholder postPassAudioPlaceholder) (studioAssetRecord, bool) {
+	if placeholder.explicitSettings || placeholder.voiceID != "" || placeholder.modelID != "" || placeholder.durationSeconds != 0 || placeholder.promptInfluence != nil || placeholder.loop || placeholder.forceInstrumental {
+		return studioAssetRecord{}, false
+	}
+	return findStudioAssetByPrompt(assets, "audio", placeholder.prompt, "ElevenLabs")
+}
 
-	switch audioType {
-	case "voice":
-		log.Printf("[OPENCODE][MEDIA][AUDIO] generating voice prompt=%q voice_id=%s model=%s", req.Prompt, req.VoiceID, req.VoiceModel)
-		audioBytes, mimeType, err = callElevenLabsVoice(req, apiKey)
-	case "sound":
-		log.Printf("[OPENCODE][MEDIA][AUDIO] generating sound prompt=%q model=%s", req.Prompt, req.SoundModel)
-		audioBytes, mimeType, err = callElevenLabsSound(req, apiKey)
-	case "music":
-		log.Printf("[OPENCODE][MEDIA][AUDIO] generating music prompt=%q model=%s", req.Prompt, req.MusicModel)
-		audioBytes, mimeType, err = callElevenLabsMusic(req, apiKey)
+// The media pass uses the same image sources and credential resolution as Studio.
+// An explicit source receives one request, with no fallback on provider failure.
+var generatePostPassSelectedImage = generateStudioSelectedImage
+var generatePostPassSelectedImageWithOptions = generateStudioSelectedImageWithOptions
+var generatePostPassVideo = generateSelectedVideoFromImage
+var generatePostPassAudio = generateElevenLabsAudioForPostPass
+
+func postPassImageSourceID(req OpenCodeMediaPostPassRequest) string {
+	source := strings.TrimSpace(req.ImageSource)
+	switch source {
+	case "openai-subscription", "glowbom-api", "openai-api", "gemini-api", "xai-api", "xai-subscription":
+		return source
+	}
+	lower := strings.ToLower(source)
+	switch {
+	case strings.Contains(lower, "codex"), strings.Contains(lower, "chatgpt"):
+		return "openai-subscription"
+	case strings.Contains(lower, "flux"):
+		return "glowbom-api"
+	case isOpenAIImageSource(source):
+		return "openai-api"
+	case strings.Contains(lower, "nano banana"), strings.Contains(lower, "gemini"):
+		return "gemini-api"
+	case strings.Contains(lower, "grok"), strings.Contains(lower, "xai"):
+		return "xai-api"
+	case strings.TrimSpace(req.OpenAIKey) != "":
+		return "openai-api"
+	case strings.TrimSpace(req.GeminiKey) != "":
+		return "gemini-api"
+	case strings.TrimSpace(req.XaiKey) != "":
+		return "xai-api"
 	default:
-		return nil, "", "", fmt.Errorf("unsupported audio type: %s", audioType)
+		return "openai-api"
 	}
-	if err != nil {
-		log.Printf("[OPENCODE][MEDIA][AUDIO] generation failed type=%s err=%s", audioType, sanitizeProviderError(err))
-		return nil, "", "", err
-	}
-	log.Printf("[OPENCODE][MEDIA][AUDIO] generation succeeded type=%s bytes=%d mime=%s", audioType, len(audioBytes), mimeType)
+}
 
-	sourceService := "ElevenLabs"
-	switch audioType {
-	case "voice":
-		sourceService = "ElevenLabs (Voice)"
-	case "sound":
-		sourceService = "ElevenLabs (Sound FX)"
-	case "music":
-		sourceService = "ElevenLabs (Music)"
+func postPassUsesGlowbom(req OpenCodeMediaPostPassRequest) bool {
+	if req.Items == nil {
+		return postPassImageSourceID(req) == "glowbom-api"
 	}
+	for _, item := range req.Items {
+		if !item.Excluded && item.MediaType == "image" && item.SourceID == "glowbom-api" {
+			return true
+		}
+	}
+	return false
+}
 
-	return audioBytes, mimeType, sourceService, nil
+func postPassUsesImageSubscription(req OpenCodeMediaPostPassRequest) bool {
+	if req.Items != nil {
+		return mediaApprovalUsesImageSubscription(req.Items)
+	}
+	source := postPassImageSourceID(req)
+	return source == "xai-subscription" || source == "openai-subscription"
+}
+
+func resolvePostPassImageKey(ctx context.Context, req OpenCodeMediaPostPassRequest, source string) (string, error) {
+	if source == "xai-subscription" || source == "openai-subscription" {
+		if !req.imageSubscriptionAuthorized {
+			return "", fmt.Errorf("Local authentication is required to use a connected image subscription.")
+		}
+		return "", nil
+	}
+	if source == "glowbom-api" {
+		if !req.glowbomAuthorized {
+			return "", fmt.Errorf("Use Glowbom's secure local connection to generate account images.")
+		}
+		return "", nil
+	}
+	if req.ImageUseSavedKey && !req.imageSavedKeyAuthorized {
+		return "", fmt.Errorf("Local authentication is required to use saved image keys.")
+	}
+	if req.ImageAPIKeys != nil || req.ImageUseSavedKey {
+		return resolveStudioProviderKey(ctx, source, req.ImageAPIKeys[source], req.ImageUseSavedKey)
+	}
+	_, key, err := resolveProjectIconSource(projectIconRequest{SourceID: source, OpenAIKey: req.OpenAIKey, GeminiKey: req.GeminiKey, XaiKey: req.XaiKey}, ctx)
+	return key, err
 }
 
 func generateImageForPostPass(req OpenCodeMediaPostPassRequest, prompt, referenceImageBase64 string) (string, string, error) {
-	source := strings.TrimSpace(req.ImageSource)
-	if source == "" {
-		source = openAIImageSourceLabel
+	ctx := req.imageContext
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	lowerSource := strings.ToLower(source)
-	useReference := strings.TrimSpace(referenceImageBase64) != ""
-
-	switch {
-	case isOpenAIImageSource(source):
-		if req.OpenAIKey == "" {
-			return "", source, fmt.Errorf("openai key is required for %s", source)
+	source := postPassImageSourceID(req)
+	if req.imageOptions != nil {
+		options, err := normalizeStudioImageOptions(*req.imageOptions)
+		if err != nil {
+			return "", "", err
 		}
-		if useReference {
-			dataURI, err := callOpenAIImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.OpenAIKey)
-			return dataURI, source, err
-		}
-		dataURI, err := callOpenAIImageGeneration(prompt, "", "", req.OpenAIKey)
-		return dataURI, source, err
-	case strings.Contains(lowerSource, "nano banana"):
-		if req.GeminiKey == "" {
-			return "", source, fmt.Errorf("gemini key is required for %s", source)
-		}
-		if useReference {
-			dataURI, err := callGeminiImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.GeminiKey)
-			return dataURI, source, err
-		}
-		dataURI, err := callGeminiImageGeneration(prompt, "", "", req.GeminiKey)
-		return dataURI, source, err
-	case strings.Contains(lowerSource, "grok imagine image"), strings.Contains(lowerSource, "grok-imagine-image"), strings.Contains(lowerSource, "grok 2 image gen"):
-		if req.XaiKey == "" {
-			return "", source, fmt.Errorf("xai key is required for %s", source)
-		}
-		if useReference {
-			if dataURI, err := callGrokImageGenerationWithReference(prompt, referenceImageBase64, req.XaiKey, ""); err == nil {
-				return dataURI, source, nil
-			}
-		}
-		dataURI, err := callGrokImageGeneration(prompt, req.XaiKey, "")
-		return dataURI, source, err
-	default:
-		if req.OpenAIKey != "" {
-			if useReference {
-				dataURI, err := callOpenAIImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.OpenAIKey)
-				return dataURI, openAIImageSourceLabel, err
-			}
-			dataURI, err := callOpenAIImageGeneration(prompt, "", "", req.OpenAIKey)
-			return dataURI, openAIImageSourceLabel, err
-		}
-		if req.GeminiKey != "" {
-			if useReference {
-				dataURI, err := callGeminiImageGenerationWithReference(prompt, referenceImageBase64, "", "", req.GeminiKey)
-				return dataURI, "Glowbom Images (Nano Banana 2)", err
-			}
-			dataURI, err := callGeminiImageGeneration(prompt, "", "", req.GeminiKey)
-			return dataURI, "Glowbom Images (Nano Banana 2)", err
-		}
-		if req.XaiKey != "" {
-			dataURI, err := callGrokImageGeneration(prompt, req.XaiKey, "")
-			return dataURI, xAIImageSourceLabel, err
-		}
-		return "", source, fmt.Errorf("no image provider key available")
+		req.imageOptions = &options
+		source = options.SourceID
 	}
+	key, err := resolvePostPassImageKey(ctx, req, source)
+	if err != nil {
+		return "", "", err
+	}
+	reference := ""
+	if referenceImageBase64 != "" {
+		reference, err = normalizeProjectIconReference(referenceImageBase64)
+		if err != nil {
+			return "", "", err
+		}
+		if source == "glowbom-api" {
+			if err := validateGlowbomImageReference(reference); err != nil {
+				return "", "", err
+			}
+		}
+	}
+	timeout := 3 * time.Minute
+	if source == "openai-subscription" {
+		timeout = codexImageTimeout
+	}
+	if source == "glowbom-api" {
+		timeout = glowbomImageTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	generationPrompt := prompt
+	if req.imageReferenceOrigin == "previous-image" && reference != "" {
+		generationPrompt = previousImageContinuityPrompt(prompt)
+	}
+	if req.imageOptions != nil {
+		return generatePostPassSelectedImageWithOptions(ctx, *req.imageOptions, key, generationPrompt, reference)
+	}
+	return generatePostPassSelectedImage(ctx, source, key, generationPrompt, reference, req.imageAspectRatio)
 }
 
-func generateVeoVideoFromImage(ctx context.Context, prompt, aspectRatio, geminiKey string, imageBytes []byte, mimeType string) ([]byte, error) {
-	if geminiKey == "" {
-		return nil, fmt.Errorf("gemini key is required for Veo generation")
+func resolvePostPassVideoKey(ctx context.Context, req OpenCodeMediaPostPassRequest, sourceID string) (string, error) {
+	if sourceID == "xai-subscription" && !req.videoSubscriptionAuthorized {
+		return "", fmt.Errorf("Local authentication is required to use the connected Grok subscription.")
 	}
+	key := ""
+	keys := req.ImageAPIKeys
+	if req.VideoAPIKeys != nil {
+		keys = req.VideoAPIKeys
+	}
+	switch sourceID {
+	case "veo-api":
+		key = strings.TrimSpace(keys["gemini-api"])
+		if key == "" && req.VideoAPIKeys == nil && !req.VideoUseSavedKey {
+			key = strings.TrimSpace(req.VeoGeminiKey)
+		}
+	case "xai-api":
+		key = strings.TrimSpace(keys["xai-api"])
+		if key == "" && req.VideoAPIKeys == nil && !req.VideoUseSavedKey {
+			key = strings.TrimSpace(req.XaiKey)
+		}
+	}
+	if req.VideoUseSavedKey && !req.videoSavedKeyAuthorized {
+		return "", fmt.Errorf("Local authentication is required to use saved video keys.")
+	}
+	return resolveStudioVideoKey(ctx, sourceID, key, req.VideoUseSavedKey)
+}
+
+func generateSelectedVideoFromImage(ctx context.Context, prompt string, options studioVideoOptions, key string, imageBytes []byte, mimeType string) ([]byte, error) {
 	if len(imageBytes) == 0 {
-		return nil, fmt.Errorf("image bytes are required for Veo generation")
+		return nil, fmt.Errorf("A starting image is required for this project video.")
 	}
-
-	if aspectRatio == "" {
-		aspectRatio = "16:9"
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	request := VeoGenerationRequest{
-		Prompt: prompt,
-		Images: []VeoImageInput{
-			{
-				Data:     base64.StdEncoding.EncodeToString(imageBytes),
-				MimeType: mimeType,
-			},
-		},
-		AspectRatio:  aspectRatio,
-		UseKeyframes: false,
-		GeminiKey:    geminiKey,
-	}
-
-	startResp, err := startVeoVideoGeneration(request)
+	images := []VeoImageInput{{Data: base64.StdEncoding.EncodeToString(imageBytes), MimeType: mimeType}}
+	started, err := generateStudioSelectedVideo(ctx, options, key, prompt, images)
 	if err != nil {
 		return nil, err
 	}
-
-	deadline := time.Now().Add(10 * time.Minute)
+	if started == nil || strings.TrimSpace(started.OperationID) == "" {
+		return nil, fmt.Errorf("Video generation returned no request ID. Check provider usage before generating again.")
+	}
+	operationID := started.OperationID
+	waiting, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := waiting.Err(); err != nil {
+			return nil, fmt.Errorf("Video request %s is still pending or could not be checked. Check provider usage before generating again: %w", operationID, err)
 		}
-
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("video generation timed out")
-		}
-
-		pollResp, err := pollVeoOperation(startResp.OperationID, geminiKey)
+		poll, err := pollStudioSelectedVideo(waiting, options, key, operationID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Could not check video request %s. Check provider usage before generating again: %w", operationID, err)
 		}
-
-		if pollResp.Error != "" {
-			return nil, fmt.Errorf("%s", pollResp.Error)
+		if poll.Error != "" {
+			return nil, fmt.Errorf("Video request %s failed: %s", operationID, poll.Error)
 		}
-
-		if pollResp.Done {
-			if pollResp.Status != "completed" || pollResp.VideoURL == "" {
-				return nil, fmt.Errorf("video generation finished without output")
+		if poll.Done {
+			if poll.Status != "completed" || poll.VideoURL == "" {
+				return nil, fmt.Errorf("Video request %s finished without output.", operationID)
 			}
-			return downloadVeoVideoBinary(pollResp.VideoURL, geminiKey)
+			dataURI, err := downloadStudioSelectedVideo(waiting, options, key, poll.VideoURL)
+			if err != nil {
+				return nil, fmt.Errorf("Video request %s finished, but its download failed. Check this request before generating again: %w", operationID, err)
+			}
+			data, _, err := decodeBase64Payload(dataURI, "video/mp4")
+			if err != nil {
+				return nil, err
+			}
+			if len(data) > maxGeneratedVideoBytes {
+				return nil, fmt.Errorf("Video exceeds maximum allowed size.")
+			}
+			return data, nil
 		}
-
-		time.Sleep(8 * time.Second)
+		timer := time.NewTimer(8 * time.Second)
+		select {
+		case <-waiting.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
 	}
 }
 
@@ -837,6 +1163,7 @@ func writePrototypeAssetsManifest(projectPath string, assets []OpenCodeMediaAsse
 			Prompt:        asset.Prompt,
 			SourceService: sourceService,
 			MediaType:     asset.MediaType,
+			UsagePrompt:   asset.UsagePrompt,
 		}
 	}
 
@@ -1135,6 +1462,11 @@ func materializeFromStudioAsset(asset studioAssetRecord, mediaType string, promp
 
 	ext := ".bin"
 	if mediaType == "image" {
+		bytes, err = normalizeStudioGeneratedImage(bytes)
+		if err != nil {
+			return OpenCodeMediaAsset{}, nil, "", err
+		}
+		mimeType = "image/png"
 		ext = imageExtensionForMimeType(mimeType)
 	} else if mediaType == "video" {
 		ext = ".mp4"
@@ -1271,6 +1603,22 @@ func parseGlowbyVideoPayload(token, payload string) postPassVideoPlaceholder {
 		if strings.HasPrefix(lowerPart, "aspect:") {
 			placeholder.aspectRatio = normalizeAspectRatio(strings.TrimSpace(part[len("aspect:"):]))
 		}
+		if strings.HasPrefix(lowerPart, "source:") {
+			placeholder.sourceID = strings.TrimSpace(part[len("source:"):])
+		}
+		if strings.HasPrefix(lowerPart, "model:") {
+			placeholder.modelID = strings.TrimSpace(part[len("model:"):])
+		}
+		if strings.HasPrefix(lowerPart, "duration:") {
+			if value, err := strconv.Atoi(strings.TrimSpace(part[len("duration:"):])); err == nil {
+				placeholder.durationSeconds = value
+			} else {
+				placeholder.durationSeconds = -1
+			}
+		}
+		if strings.HasPrefix(lowerPart, "resolution:") {
+			placeholder.resolution = strings.TrimSpace(part[len("resolution:"):])
+		}
 	}
 
 	return placeholder
@@ -1320,6 +1668,7 @@ func parseGlowbyAudioPayload(token, payload string) postPassAudioPlaceholder {
 		}
 
 		lowerPart := strings.ToLower(part)
+		placeholder.explicitSettings = true
 		switch {
 		case strings.HasPrefix(lowerPart, "type:"):
 			placeholder.audioType = normalizePostPassAudioType(strings.TrimSpace(part[len("type:"):]), placeholder.prompt)
@@ -1336,21 +1685,15 @@ func parseGlowbyAudioPayload(token, payload string) postPassAudioPlaceholder {
 		case strings.HasPrefix(lowerPart, "model_id:"):
 			placeholder.modelID = strings.TrimSpace(part[len("model_id:"):])
 		case strings.HasPrefix(lowerPart, "duration:"):
-			if seconds, err := strconv.ParseFloat(strings.TrimSpace(part[len("duration:"):]), 64); err == nil && seconds > 0 {
-				placeholder.durationSeconds = seconds
-			}
+			placeholder.durationSeconds = parsePostPassAudioNumber(part[len("duration:"):])
 		case strings.HasPrefix(lowerPart, "durationseconds:"):
-			if seconds, err := strconv.ParseFloat(strings.TrimSpace(part[len("durationseconds:"):]), 64); err == nil && seconds > 0 {
-				placeholder.durationSeconds = seconds
-			}
+			placeholder.durationSeconds = parsePostPassAudioNumber(part[len("durationseconds:"):])
 		case strings.HasPrefix(lowerPart, "promptinfluence:"):
-			if influence, err := strconv.ParseFloat(strings.TrimSpace(part[len("promptinfluence:"):]), 64); err == nil {
-				placeholder.promptInfluence = &influence
-			}
+			influence := parsePostPassAudioNumber(part[len("promptinfluence:"):])
+			placeholder.promptInfluence = &influence
 		case strings.HasPrefix(lowerPart, "influence:"):
-			if influence, err := strconv.ParseFloat(strings.TrimSpace(part[len("influence:"):]), 64); err == nil {
-				placeholder.promptInfluence = &influence
-			}
+			influence := parsePostPassAudioNumber(part[len("influence:"):])
+			placeholder.promptInfluence = &influence
 		case strings.HasPrefix(lowerPart, "loop:"):
 			placeholder.loop = parseBoolOption(strings.TrimSpace(part[len("loop:"):]))
 		case strings.HasPrefix(lowerPart, "instrumental:"):
@@ -1361,7 +1704,18 @@ func parseGlowbyAudioPayload(token, payload string) postPassAudioPlaceholder {
 	}
 
 	placeholder.audioType = normalizePostPassAudioType(placeholder.audioType, placeholder.prompt)
+	if placeholder.audioType == "music" && placeholder.durationSeconds == 0 {
+		placeholder.durationSeconds = defaultElevenMusicDuration
+	}
 	return placeholder
+}
+
+func parsePostPassAudioNumber(value string) float64 {
+	number, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+		return -1
+	}
+	return number
 }
 
 func normalizePostPassAudioType(audioType string, prompt string) string {
@@ -1474,6 +1828,13 @@ func resolveReferenceImage(req OpenCodeMediaPostPassRequest, projectPath string,
 		if len(data) > maxGeneratedImageBytes {
 			return "", "", fmt.Errorf("reference image is too large")
 		}
+		if isProjectImageAssetReference(projectPath, absPath) {
+			data, err = normalizeSavedImageReference(data, postPassImageSourceID(req))
+			if err != nil {
+				return "", "", err
+			}
+			return base64.StdEncoding.EncodeToString(data), "image/png", nil
+		}
 
 		mimeType := detectMimeType(data, "image/png")
 		return base64.StdEncoding.EncodeToString(data), mimeType, nil
@@ -1485,14 +1846,18 @@ func resolveReferenceImage(req OpenCodeMediaPostPassRequest, projectPath string,
 			if normalizedLookupKey(asset.ID) != assetID {
 				continue
 			}
-			if asset.DataBase64 == "" {
+			if asset.MediaType != "image" || asset.DataBase64 == "" {
 				return "", "", fmt.Errorf("reference asset has no image data")
 			}
-			bytes, mimeType, err := decodeBase64Payload(asset.DataBase64, "image/png")
+			bytes, _, err := decodeBase64Payload(asset.DataBase64, "image/png")
 			if err != nil {
 				return "", "", err
 			}
-			return base64.StdEncoding.EncodeToString(bytes), mimeType, nil
+			bytes, err = normalizeSavedImageReference(bytes, postPassImageSourceID(req))
+			if err != nil {
+				return "", "", err
+			}
+			return base64.StdEncoding.EncodeToString(bytes), "image/png", nil
 		}
 		return "", "", fmt.Errorf("reference asset not found in Studio")
 	}
@@ -1500,13 +1865,24 @@ func resolveReferenceImage(req OpenCodeMediaPostPassRequest, projectPath string,
 	return "", "", nil
 }
 
+func isProjectImageAssetReference(projectPath, referencePath string) bool {
+	projectRoot, err := filepath.EvalSymlinks(projectPath)
+	if err != nil {
+		return false
+	}
+	reference, err := filepath.EvalSymlinks(referencePath)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(projectRoot, reference)
+	return err == nil && filepath.IsLocal(relative) && strings.HasPrefix(filepath.ToSlash(relative), "prototype/assets/")
+}
+
 func loadStudioAssets() ([]studioAssetRecord, error) {
-	userConfigDir, err := os.UserConfigDir()
+	assetsDir, err := studioAssetsDirectory()
 	if err != nil {
 		return nil, err
 	}
-
-	assetsDir := filepath.Join(userConfigDir, "Glowbom", "Studio", "Assets")
 	entries, err := os.ReadDir(assetsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1905,4 +2281,223 @@ func dedupeWarnings(warnings []string) []string {
 func directoryExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// Approved items are executed once before replacement. Failed or excluded items
+// cannot be rediscovered by a later scan and trigger an unreviewed request.
+func materializeApprovedMedia(ctx context.Context, req OpenCodeMediaPostPassRequest, projectPath string, studioAssets []studioAssetRecord, resp *OpenCodeMediaPostPassResponse) (map[string]string, error) {
+	if len(req.Items) > 100 {
+		return nil, fmt.Errorf("Use at most 100 assets per run.")
+	}
+	if err := preparePreviousImageApprovalReferences(req.Items); err != nil {
+		return nil, err
+	}
+	content := ""
+	for _, target := range req.ScanTargets {
+		path, err := resolveScanTargetPath(projectPath, target)
+		if err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		content += string(data) + "\n"
+	}
+	seen := map[string]bool{}
+	totalReferenceBytes := 0
+	for _, item := range req.Items {
+		for _, reference := range item.ReferenceImages {
+			totalReferenceBytes += len(reference)
+		}
+		if totalReferenceBytes > 32*1024*1024 {
+			return nil, fmt.Errorf("Use fewer or smaller reference photos.")
+		}
+		if seen[item.ID] {
+			return nil, fmt.Errorf("Duplicate approved asset ID.")
+		}
+		seen[item.ID] = true
+		if err := validateMediaApprovalItem(item); err != nil {
+			return nil, err
+		}
+		if item.Placeholder != "" {
+			if item.ID != mediaApprovalItemID(item.MediaType, item.Placeholder) || !strings.Contains(content, item.Placeholder) {
+				return nil, fmt.Errorf("An approved asset placeholder changed before generation.")
+			}
+		} else if !strings.HasPrefix(item.ID, "added-") || (!item.Excluded && strings.TrimSpace(item.UsagePrompt) == "") {
+			return nil, fmt.Errorf("Added assets need instructions for where to use them.")
+		}
+	}
+	replacements := map[string]string{}
+	imageRefs := map[string]postPassImageRef{}
+	materializeUnreviewedReusableMedia(req, projectPath, content, studioAssets, resp, replacements, imageRefs)
+	for _, mediaType := range []string{"image", "video", "audio"} {
+		for _, item := range req.Items {
+			if item.Excluded || item.MediaType != mediaType {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+			itemReq := req
+			serializedSettings, _ := json.Marshal(item)
+			settingsHash := sha256.Sum256(serializedSettings)
+			itemReq.assetIdentity = fmt.Sprintf("%s-%x", item.ID, settingsHash[:8])
+			itemReq.approvedImage = true
+			var asset OpenCodeMediaAsset
+			var err error
+			if mediaType == "image" {
+				imageReq := itemReq
+				imageReq.ImageSource, imageReq.imageAspectRatio = item.SourceID, item.AspectRatio
+				if mediaApprovalHasImageOptions(item) {
+					imageReq.imageOptions = &studioImageOptions{SourceID: item.SourceID, ModelID: item.ModelID, AspectRatio: item.AspectRatio, Resolution: item.Resolution, Quality: item.Quality}
+				}
+				imageReq.imageReferenceOrigin = item.ReferenceOrigin
+				imageReq.approvedImage = true
+				reference := ""
+				if len(item.ReferenceImages) > 0 {
+					reference = item.ReferenceImages[0]
+				}
+				var ref postPassImageRef
+				ref, err = materializeImagePlaceholder(imageReq, projectPath, item.Prompt, item.Placeholder, reference, studioAssets, resp)
+				if err == nil {
+					asset = ref.asset
+					registerImageRefKeys(imageRefs, ref)
+					imageRefs[normalizedLookupKey(item.ID)] = ref
+					for _, original := range extractImagePlaceholders(item.Placeholder) {
+						imageRefs[normalizedLookupKey(original.Prompt)] = ref
+						imageRefs[normalizedLookupKey(resourceSafeName(original.Prompt))] = ref
+					}
+				}
+			} else if mediaType == "video" {
+				asset, err = materializeVideoPlaceholder(ctx, itemReq, projectPath, postPassVideoPlaceholder{token: item.Placeholder, prompt: item.Prompt, fromKey: item.FromKey, aspectRatio: item.AspectRatio, sourceID: item.SourceID, modelID: item.ModelID, durationSeconds: int(item.DurationSeconds), resolution: item.Resolution}, imageRefs, studioAssets, resp)
+			} else {
+				asset, err = materializeAudioPlaceholder(itemReq, projectPath, postPassAudioPlaceholder{token: item.Placeholder, prompt: item.Prompt, audioType: item.AudioType, voiceID: item.VoiceID, modelID: item.ModelID, durationSeconds: item.DurationSeconds, promptInfluence: item.PromptInfluence, loop: item.Loop, forceInstrumental: item.ForceInstrumental}, studioAssets, resp)
+			}
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, err.Error())
+				continue
+			}
+			if item.Placeholder != "" {
+				replacements[item.Placeholder] = "assets/" + asset.Filename
+			}
+			for i := range resp.GeneratedAssets {
+				if resp.GeneratedAssets[i].Filename == asset.Filename {
+					resp.GeneratedAssets[i].UsagePrompt = item.UsagePrompt
+				}
+			}
+			for i := range resp.ReusedStudioAssets {
+				if resp.ReusedStudioAssets[i].Filename == asset.Filename {
+					resp.ReusedStudioAssets[i].UsagePrompt = item.UsagePrompt
+				}
+			}
+		}
+	}
+	return replacements, nil
+}
+
+func postPassAssetFilename(req OpenCodeMediaPostPassRequest, prefix, prompt, ext string) string {
+	if req.assetIdentity != "" {
+		return deterministicAssetFilename(prefix, prompt+" "+req.assetIdentity, ext)
+	}
+	if prefix == "img" && req.imageOptions != nil {
+		settings, _ := json.Marshal(req.imageOptions)
+		hash := sha256.Sum256(settings)
+		return deterministicAssetFilename(prefix, fmt.Sprintf("%s %x", prompt, hash[:8]), ext)
+	}
+	return deterministicAssetFilename(prefix, prompt, ext)
+}
+
+// Place cached assets that did not require approval. This path never contacts a
+// provider, and explicitly reviewed or excluded placeholders stay with their item.
+func materializeUnreviewedReusableMedia(req OpenCodeMediaPostPassRequest, projectPath, content string, studioAssets []studioAssetRecord, resp *OpenCodeMediaPostPassResponse, replacements map[string]string, imageRefs map[string]postPassImageRef) {
+	known := map[string]bool{}
+	for _, item := range req.Items {
+		known[item.Placeholder] = true
+	}
+	for _, placeholder := range extractImagePlaceholders(content) {
+		if known[placeholder.Token] || req.imageOptions != nil {
+			continue
+		}
+		cached, ok := findStudioAssetByPrompt(studioAssets, "image", placeholder.Prompt, req.ImageSource)
+		if !ok {
+			continue
+		}
+		asset, data, mimeType, err := materializeFromStudioAsset(cached, "image", placeholder.Prompt, placeholder.Token, projectPath, cached.SourceService, maxGeneratedImageBytes, map[string]struct{}{".png": {}, ".jpg": {}, ".jpeg": {}, ".webp": {}})
+		if err != nil {
+			resp.Warnings = append(resp.Warnings, "A reusable Studio image could not be copied.")
+			continue
+		}
+		resp.ReusedStudioAssets = append(resp.ReusedStudioAssets, asset)
+		replacements[placeholder.Token] = "assets/" + asset.Filename
+		registerImageRefKeys(imageRefs, postPassImageRef{asset: asset, bytes: data, mimeType: mimeType})
+	}
+	for _, placeholder := range extractAudioPlaceholders(content) {
+		if known[placeholder.token] {
+			continue
+		}
+		cached, ok := findReusablePostPassAudio(studioAssets, placeholder)
+		if !ok {
+			continue
+		}
+		asset, _, _, err := materializeFromStudioAsset(cached, "audio", placeholder.prompt, placeholder.token, projectPath, cached.SourceService, maxGeneratedAudioBytes, map[string]struct{}{".mp3": {}, ".wav": {}, ".ogg": {}, ".flac": {}, ".m4a": {}, ".aac": {}})
+		if err != nil {
+			resp.Warnings = append(resp.Warnings, "Reusable Studio audio could not be copied.")
+			continue
+		}
+		resp.ReusedStudioAssets = append(resp.ReusedStudioAssets, asset)
+		replacements[placeholder.token] = "assets/" + asset.Filename
+	}
+}
+
+func materializePreviousImageReference(projectPath, prompt, placeholder, reference string, resp *OpenCodeMediaPostPassResponse) (postPassImageRef, error) {
+	data, _, err := decodeBase64Payload(reference, "image/png")
+	if err != nil {
+		return postPassImageRef{}, err
+	}
+	data, err = normalizeProjectIcon(data)
+	if err != nil {
+		return postPassImageRef{}, err
+	}
+	digest := sha256.Sum256(data)
+	filename := fmt.Sprintf("glowbom-previous-image-%x.png", digest[:16])
+	canonicalRoot, err := filepath.EvalSymlinks(projectPath)
+	if err != nil {
+		return postPassImageRef{}, err
+	}
+	assets, err := chatWriteDirectory(canonicalRoot, "prototype/assets")
+	if err != nil {
+		return postPassImageRef{}, err
+	}
+	anchor, err := os.OpenRoot(assets)
+	if err != nil {
+		return postPassImageRef{}, err
+	}
+	defer anchor.Close()
+	if info, statErr := anchor.Lstat(filename); statErr == nil {
+		if !info.Mode().IsRegular() || info.Size() > projectIconMaxBytes {
+			return postPassImageRef{}, fmt.Errorf("The saved previous image changed. Its newer content was kept.")
+		}
+		file, openErr := anchor.Open(filename)
+		if openErr != nil {
+			return postPassImageRef{}, openErr
+		}
+		current, readErr := io.ReadAll(io.LimitReader(file, projectIconMaxBytes+1))
+		file.Close()
+		if readErr != nil || !bytespkg.Equal(current, data) {
+			return postPassImageRef{}, fmt.Errorf("The saved previous image changed. Its newer content was kept.")
+		}
+	} else if os.IsNotExist(statErr) {
+		if err := atomicChatFile(assets, filename, data); err != nil {
+			return postPassImageRef{}, err
+		}
+	} else {
+		return postPassImageRef{}, statErr
+	}
+	relative := "prototype/assets/" + filename
+	asset := OpenCodeMediaAsset{Prompt: prompt, Placeholder: placeholder, MediaType: "image", Filename: filename, RelativePath: relative, SourceService: "Previous project image"}
+	resp.ReusedStudioAssets = append(resp.ReusedStudioAssets, asset)
+	return postPassImageRef{asset: asset, bytes: data, mimeType: "image/png"}, nil
 }

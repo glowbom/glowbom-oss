@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,9 +168,10 @@ func savePreviewDefinitions(project string, defs []previewDefinition) error {
 }
 
 type projectPreviewManager struct {
-	mu       sync.Mutex
-	sessions map[string]*previewSession
-	closed   bool
+	mu          sync.Mutex
+	sessions    map[string]*previewSession
+	closed      bool
+	openBrowser func(context.Context, string) error
 }
 
 type previewSession struct {
@@ -183,7 +185,7 @@ type previewSession struct {
 }
 
 func newProjectPreviewManager() *projectPreviewManager {
-	return &projectPreviewManager{sessions: make(map[string]*previewSession)}
+	return &projectPreviewManager{sessions: make(map[string]*previewSession), openBrowser: openPreviewBrowser}
 }
 
 func previewProjectPath(raw string) (string, error) {
@@ -272,6 +274,41 @@ func previewFrameworkCLI(project, dir, kind string) string {
 	return ""
 }
 
+// A detected app such as SwiftUI or Kotlin can be opened even when it is not a saved preview.
+func discoveredPreviewDefinition(project string, defs []previewDefinition, target string) *previewDefinition {
+	if target == "" {
+		return nil
+	}
+	apps, _, err := discoverProjectStacks(project, defs)
+	if err != nil {
+		return nil
+	}
+	for _, app := range apps {
+		id := app.BuildTarget
+		if id == "" {
+			id = app.Target
+		}
+		if id != target && app.Directory != target {
+			continue
+		}
+		dir := app.Directory
+		if dir == "" {
+			dir = id
+		}
+		mode := app.PreviewMode
+		if mode == "" {
+			mode = "none"
+		}
+		name := app.Name
+		if name == "" {
+			name = id
+		}
+		found := previewDefinition{ID: id, Name: name, Directory: dir, PreviewMode: mode, Preset: app.Preset, Command: app.Command}
+		return &found
+	}
+	return nil
+}
+
 func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
@@ -311,7 +348,7 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	if req.Action != "inspect" && req.Action != "start" && req.Action != "stop" && req.Action != "save" && req.Action != "remove" && req.Action != "terminal" && req.Action != "discover" && req.Action != "folder" && req.Action != "tools" && req.Action != "open" {
+	if req.Action != "inspect" && req.Action != "start" && req.Action != "stop" && req.Action != "save" && req.Action != "remove" && req.Action != "terminal" && req.Action != "discover" && req.Action != "folder" && req.Action != "tools" && req.Action != "open" && req.Action != "browser" {
 		http.Error(w, "Unknown preview action", http.StatusBadRequest)
 		return
 	}
@@ -325,8 +362,7 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 	// A settings edit must not prevent an existing server from being stopped.
 	if req.Action == "stop" {
 		if s := m.sessions[key]; s != nil && (req.ID == "" || s.snapshot().ID == req.ID) {
-			s.stop()
-			delete(m.sessions, key)
+			m.stopSession(s)
 		}
 	}
 	defs, err := readPreviewDefinitions(project)
@@ -360,6 +396,10 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if d.Preset == "html" {
+			http.Error(w, "The prototype is already the HTML and CSS stack.", http.StatusBadRequest)
+			return
+		}
 		found := false
 		for i := range defs {
 			if defs[i].ID == d.ID {
@@ -379,8 +419,7 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if s := m.sessions[project+"/"+d.ID]; s != nil {
-			s.stop()
-			delete(m.sessions, project+"/"+d.ID)
+			m.stopSession(s)
 		}
 	}
 	var selected *previewDefinition
@@ -388,6 +427,9 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 		if defs[i].ID == req.Target {
 			selected = &defs[i]
 		}
+	}
+	if selected == nil && (req.Action == "tools" || req.Action == "open" || req.Action == "folder" || req.Action == "terminal") {
+		selected = discoveredPreviewDefinition(project, defs, req.Target)
 	}
 	if req.Action != "inspect" && req.Action != "save" && req.Action != "stop" && selected == nil {
 		http.Error(w, "Preview target not found", http.StatusBadRequest)
@@ -397,6 +439,22 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Built-in previews cannot be removed", http.StatusBadRequest)
 		return
 	}
+	if req.Action == "browser" {
+		session := m.sessions[key]
+		if session == nil {
+			http.Error(w, "Start this preview before opening it in your browser.", http.StatusConflict)
+			return
+		}
+		view := session.snapshot()
+		if view.Status != "running" || !validPreviewBrowserURL(view.URL) {
+			http.Error(w, "This preview is not ready to open. Start it again and retry.", http.StatusConflict)
+			return
+		}
+		if err := m.openBrowser(r.Context(), view.URL); err != nil {
+			http.Error(w, "Could not open your browser. Check that a default browser is installed and try again.", http.StatusInternalServerError)
+			return
+		}
+	}
 	if req.Action == "tools" || req.Action == "open" {
 		v := inspectPreviewDefinition(project, *selected)
 		if v.directory == "" {
@@ -404,7 +462,7 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if req.Action == "tools" {
-			writeJSON(w, map[string]interface{}{"editors": installedStackEditors(), "path": v.directory, "fileManagerLabel": stackFileManagerLabel()})
+			writeJSON(w, map[string]interface{}{"editors": installedStackEditors(), "path": v.directory, "fileManagerLabel": stackFileManagerLabel(), "canOpenTerminal": v.CanOpenTerminal, "canOpenFolder": v.CanOpenFolder})
 			return
 		}
 		if err := launchStackTool(v.directory, req.Editor); err != nil {
@@ -436,8 +494,7 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 	if req.Action == "remove" {
 		if s := m.sessions[key]; s != nil && (req.ID == "" || s.snapshot().ID == req.ID) {
-			s.stop()
-			delete(m.sessions, key)
+			m.stopSession(s)
 		}
 	}
 	if req.Action == "remove" {
@@ -455,31 +512,40 @@ func (m *projectPreviewManager) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 	if req.Action == "start" {
 		v := inspectPreviewDefinition(project, *selected)
-		if !v.Available || (v.NeedsInstall && !req.Install) {
-			message := v.Reason
-			if v.NeedsInstall {
-				message = "Install this app's dependencies before starting it."
-			}
-			http.Error(w, message, http.StatusBadRequest)
+		if !v.Available {
+			http.Error(w, v.Reason, http.StatusBadRequest)
 			return
 		}
 		if s := m.sessions[key]; s == nil || s.snapshot().Status == "failed" {
 			if s != nil {
-				s.stop()
+				m.stopSession(s)
 			}
-			// Keep the active project's targets and release previous projects.
-			for oldKey, old := range m.sessions {
-				if old.project != project {
-					old.stop()
-					delete(m.sessions, oldKey)
-				}
-			}
-			s, err := startProjectPreview(project, v)
+			shared, err := m.previewForDirectory(project, v)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
-			m.sessions[key] = s
+			if shared != nil {
+				// Different stack names can point to one app and its single dev lock.
+				m.sessions[key] = shared
+			} else {
+				if v.NeedsInstall && !req.Install {
+					http.Error(w, "Install this app's dependencies before starting it.", http.StatusBadRequest)
+					return
+				}
+				// Keep the active project's targets and release previous projects.
+				for _, old := range m.sessions {
+					if old.project != project {
+						m.stopSession(old)
+					}
+				}
+				s, err := startProjectPreview(project, v)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				m.sessions[key] = s
+			}
 		}
 	}
 	views := make([]previewTarget, 0, len(defs))
@@ -505,10 +571,37 @@ func (m *projectPreviewManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
-	for key, s := range m.sessions {
-		s.stop()
-		delete(m.sessions, key)
+	for _, s := range m.sessions {
+		m.stopSession(s)
 	}
+}
+
+// The manager lock protects both alias registration and stopping shared sessions.
+func (m *projectPreviewManager) stopSession(session *previewSession) {
+	session.stop()
+	for key, candidate := range m.sessions {
+		if candidate == session {
+			delete(m.sessions, key)
+		}
+	}
+}
+
+func (m *projectPreviewManager) previewForDirectory(project string, target previewTarget) (*previewSession, error) {
+	for _, session := range m.sessions {
+		view := session.snapshot()
+		if session.project != project || view.directory != target.directory {
+			continue
+		}
+		if view.Status == "failed" {
+			m.stopSession(session)
+			continue
+		}
+		if view.Kind != target.Kind || !slices.Equal(view.Command, target.Command) {
+			return nil, fmt.Errorf("%s already previews this folder with a different command. Stop that preview before starting this one.", view.Name)
+		}
+		return session, nil
+	}
+	return nil, nil
 }
 
 func (s *previewSession) snapshot() previewTarget {
@@ -541,6 +634,21 @@ func (s *previewSession) fail(err error) {
 	defer s.mu.Unlock()
 	s.view.Status, s.view.URL = "failed", ""
 	s.view.Error = sanitizeProviderError(err)
+}
+
+func (s *previewSession) failServerExit(err error) {
+	view := s.snapshot()
+	if view.Kind == "next" {
+		for _, line := range view.Logs {
+			line = strings.ToLower(line)
+			if strings.Contains(line, "another next dev server is already running") ||
+				(strings.Contains(line, "unable to acquire lock") && strings.Contains(line, "next dev")) {
+				s.fail(errors.New("Another Next.js server is using this app's folder. Stop it in the terminal or app that started it, then retry this preview. See the logs for its address."))
+				return
+			}
+		}
+	}
+	s.fail(fmt.Errorf("preview server exited: %w. See the preview logs", err))
 }
 
 var previewANSI = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
@@ -729,7 +837,7 @@ func (s *previewSession) runFramework(ctx context.Context, project, bun string) 
 			if err == nil {
 				err = errors.New("The preview server stopped.")
 			}
-			s.fail(fmt.Errorf("preview server exited: %w. See the preview logs", err))
+			s.failServerExit(err)
 			return
 		case <-deadline.C:
 			if !ready {
@@ -811,6 +919,9 @@ func staticPreviewHandler(root *os.Root, token string, port int) http.Handler {
 			return
 		}
 		// Static previews also reload when opened in a separate browser tab.
+		if servePreviewCaptureAsset(w, r) {
+			return
+		}
 		if r.URL.Path == "/__glowbom_preview__/revision" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			_, _ = io.WriteString(w, previewRevision(root.Name()))
@@ -859,7 +970,7 @@ func staticPreviewHandler(root *os.Root, token string, port int) http.Handler {
 				http.Error(w, "Could not read this page", http.StatusInternalServerError)
 				return
 			}
-			data = append(data, []byte(`<script src="/__glowbom_preview__/reload.js"></script>`)...)
+			data = append(data, []byte(`<script src="/__glowbom_preview__/reload.js"></script>`+previewCaptureTag(r))...)
 			http.ServeContent(w, r, info.Name(), info.ModTime(), bytes.NewReader(data))
 			return
 		}

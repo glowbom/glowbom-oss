@@ -24,7 +24,13 @@ function browserTokenFromURL(): string {
   return token;
 }
 
+export function desktopConnection(): { token: string; backendUrl: string } | undefined {
+ return typeof window === 'undefined' ? undefined : (window as Window & { __GLOWBOM_DESKTOP__?: { token: string; backendUrl: string } }).__GLOWBOM_DESKTOP__;
+}
+
 function resolveServerToken(): string {
+ const native = desktopConnection();
+ if (native) return native.token;
   const envToken = String(
     import.meta.env.VITE_GLOWBOM_SERVER_TOKEN || import.meta.env.VITE_GLOWBY_SERVER_TOKEN || '',
   ).trim();

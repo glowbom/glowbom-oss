@@ -251,3 +251,20 @@ func TestDesktopLoginCancellationClosesListenerWithoutPolling(t *testing.T) {
 		t.Fatal("listener remained open after cancellation")
 	}
 }
+
+func TestLoginCallbackCloseReleasesListenerBeforeServeBegins(t *testing.T) {
+	callback, err := newLoginCallback("fixture-state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = callback.listener.Close() })
+	address := callback.listener.Addr().String()
+	// Shutdown can finish before Serve registers the reserved listener.
+	callback.server = &http.Server{}
+	callback.close()
+	connection, err := net.DialTimeout("tcp", address, time.Second)
+	if err == nil {
+		_ = connection.Close()
+		t.Fatal("callback reservation remained open before Serve began")
+	}
+}

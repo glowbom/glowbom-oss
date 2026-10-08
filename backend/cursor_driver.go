@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -69,9 +70,85 @@ func cursorHealthHandler(w http.ResponseWriter, r *http.Request) {
 
 var cursorSessionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
+var cursorCLIModelID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
+func cursorCLIModel(model string) string {
+	model = strings.TrimPrefix(strings.TrimSpace(model), "cursor/")
+	if cursorCLIModelID.MatchString(model) {
+		return model
+	}
+	return ""
+}
+
+func parseCursorModels(text string) []chatModel {
+	models := []chatModel{}
+	for _, line := range strings.Split(text, "\n") {
+		id, name, ok := strings.Cut(strings.TrimSpace(line), " - ")
+		if !ok {
+			continue
+		}
+		id = cursorCLIModel(id)
+		name = strings.TrimSpace(strings.Map(func(r rune) rune {
+			if r == '\u200b' || r == '\ufeff' {
+				return -1
+			}
+			return r
+		}, name))
+		if id == "" || name == "" {
+			continue
+		}
+		models = append(models, chatModel{ID: "cursor/" + id, Name: name, Provider: "Cursor"})
+	}
+	return models
+}
+
+func listCursorModels(ctx context.Context) []chatModel {
+	cursorModelCache.mu.Lock()
+	if time.Since(cursorModelCache.at) < 45*time.Second {
+		models := append([]chatModel(nil), cursorModelCache.models...)
+		cursorModelCache.mu.Unlock()
+		return models
+	}
+	cursorModelCache.mu.Unlock()
+
+	path, err := cursorExecutable()
+	if err != nil {
+		rememberCursorModels(nil)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "models")
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = io.Discard
+	cmd.WaitDelay = time.Second
+	configureCursorCancellation(cmd)
+	if err := cmd.Run(); err != nil {
+		rememberCursorModels(nil)
+		return nil
+	}
+	models := parseCursorModels(output.String())
+	rememberCursorModels(models)
+	return models
+}
+
+func rememberCursorModels(models []chatModel) {
+	cursorModelCache.mu.Lock()
+	cursorModelCache.at = time.Now()
+	cursorModelCache.models = append([]chatModel(nil), models...)
+	cursorModelCache.mu.Unlock()
+}
+
+var cursorModelCache struct {
+	mu     sync.Mutex
+	at     time.Time
+	models []chatModel
+}
+
 func cursorArguments(model, session string) []string {
 	args := []string{"--print", "--force", "--output-format", "stream-json"}
-	if model = strings.TrimSpace(model); model != "" {
+	if model = cursorCLIModel(model); model != "" {
 		args = append(args, "--model", model)
 	}
 	if strings.HasPrefix(session, "cursor-") {
@@ -174,7 +251,7 @@ func streamCursor(ctx context.Context, binary, project string, args []string, pr
 	return result, nil
 }
 
-func runCursorRefine(w http.ResponseWriter, r *http.Request, req OpenCodeAgentRequest, instructions string) (string, string) {
+func runCursorRefine(w http.ResponseWriter, r *http.Request, req OpenCodeAgentRequest, instructions string, onComplete ...func(string, string, []string)) (string, string) {
 	binary, err := cursorExecutable()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -192,8 +269,13 @@ func runCursorRefine(w http.ResponseWriter, r *http.Request, req OpenCodeAgentRe
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	emit := func(event map[string]interface{}) { sendSSEData(w, flusher, event) }
-	emit(map[string]interface{}{"output": "Starting Cursor. File edits and commands run under your local Cursor configuration."})
+	emit := func(event map[string]interface{}) {
+		if runID := w.Header().Get("X-Glowbom-Run-ID"); runID != "" {
+			event["runId"] = runID
+		}
+		sendSSEData(w, flusher, event)
+	}
+	emit(map[string]interface{}{"output": "Starting Cursor. This CLI automatically allows file edits and commands for the build, except actions explicitly denied by your local Cursor configuration."})
 	prompt := buildRefinePrompt(req.ProjectPath, instructions)
 	prompt += "\n\nCursor run: automatic Glowbom media generation is unavailable in this run. Use existing assets and report any media still needed. Do not create image placeholders (glowbomimages, glowbyimages, glowbomimage, or glowbyimage), glowbyvideo, or glowbyaudio placeholders. Do not stage, commit, or run other Git commands unless the user explicitly requested them."
 	summary, runErr := streamCursor(r.Context(), binary, req.ProjectPath, cursorArguments(req.Model, req.SessionID), prompt, emit)
@@ -202,9 +284,15 @@ func runCursorRefine(w http.ResponseWriter, r *http.Request, req OpenCodeAgentRe
 		emit(map[string]interface{}{"output": "Could not determine all changed files. Review the project folder."})
 	}
 	if runErr != nil {
+		if len(onComplete) > 0 {
+			onComplete[0]("failed", runErr.Error(), changed)
+		}
 		emit(map[string]interface{}{"done": true, "success": false, "error": runErr.Error(), "changedFiles": changed})
 		return "failed", runErr.Error()
 	}
-	emit(map[string]interface{}{"done": true, "success": true, "changedFiles": changed})
+	if len(onComplete) > 0 {
+		onComplete[0]("completed", summary, changed)
+	}
+	emit(map[string]interface{}{"done": true, "success": true, "changedFiles": changed, "resultText": summary})
 	return "completed", summary
 }

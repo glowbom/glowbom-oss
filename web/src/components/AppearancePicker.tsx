@@ -21,7 +21,7 @@ export interface AppearanceProps {
 export function AppearancePicker({ appearance, onAppearanceChange }: AppearanceProps) {
   return <label className="appearance-picker">
     <span>Appearance</span>
-    <select value={appearance} onChange={(event) => onAppearanceChange(event.target.value as Appearance)}>
+    <select aria-label="Appearance" value={appearance} onChange={(event) => onAppearanceChange(event.target.value as Appearance)}>
       <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
     </select>
   </label>;

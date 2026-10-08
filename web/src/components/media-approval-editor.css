@@ -1,0 +1,65 @@
+.media-approval-editor { width: 100%; }
+.media-approval-editor .work-ask-content { grid-auto-rows: max-content; }
+.media-editor-intro { display: grid; gap: 6px; padding-bottom: 6px; }
+.media-editor-toolbar { font-size: 12px; color: var(--muted); padding: 4px 0; }
+.media-editor-list { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.media-editor-item + .media-editor-item { border-top: 1px solid var(--border); }
+.media-editor-heading { display: flex; align-items: center; padding-left: 12px; }
+.media-editor-include { display: grid; place-items: center; width: 28px; min-height: 44px; flex: none; cursor: pointer; }
+.media-editor-include input, .media-editor-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
+.media-editor-disclosure { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; border: 0; padding: 16px 14px 16px 8px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.media-editor-heading:hover, .media-editor-expanded .media-editor-heading { background: var(--surface-soft); }
+.media-editor-disclosure:focus-visible, .media-editor-refresh:focus-visible, .media-editor-upload:focus-within { outline: 2px solid var(--text); outline-offset: -3px; border-radius: 8px; }
+.media-editor-glyph { display: grid; place-items: center; width: 36px; height: 40px; color: var(--muted); flex: none; }
+.media-editor-glyph svg { width: 23px; height: 23px; }
+.media-editor-summary { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.media-editor-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; line-height: 1.45; }
+.media-editor-meta { display: flex; align-items: baseline; gap: 3px 0; flex-wrap: wrap; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.media-editor-meta > span + span::before { content: '·'; padding: 0 6px; color: var(--muted); }
+.media-editor-kind { text-transform: capitalize; }
+.media-editor-state { font-style: italic; }
+.media-editor-attention { color: var(--danger); }
+.media-editor-excluded .media-editor-glyph, .media-editor-excluded .media-editor-title { color: var(--muted); }
+.media-editor-chevron { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform 160ms ease; }
+.media-editor-expanded .media-editor-chevron { transform: rotate(90deg); }
+.media-editor-details { display: grid; gap: 12px; padding: 16px 18px 20px 56px; border-top: 1px solid var(--border); }
+.media-editor-details[hidden] { display: none; }
+.media-approval-editor .media-editor-item fieldset { display: grid; gap: 14px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.media-editor-source-settings { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+.media-editor-source-settings > label:only-child { grid-column: 1 / -1; }
+.media-editor-source-settings > .studio-image-settings { grid-column: 1 / -1; }
+.media-editor-item fieldset > label, .media-editor-source-settings > label, .media-editor-add > label, .media-editor-connections > label { display: grid; gap: 6px; font-size: 12px; font-weight: 500; }
+.media-editor-item input:not([type='checkbox'], [type='file']), .media-editor-item select, .media-editor-add select, .media-editor-connections input { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-weight: 400; padding: 9px 10px; }
+.media-approval-editor .media-editor-item textarea { border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.media-editor-item .media-editor-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.media-editor-note { font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.5; }
+.media-editor-error { font-size: 12px; color: var(--danger); line-height: 1.5; }
+.media-editor-excluded fieldset { opacity: .55; }
+.media-editor-reference-section { display: grid; gap: 8px; }
+.media-editor-label { font-size: 12px; font-weight: 500; }
+.media-editor-label .media-editor-note { padding-left: 4px; }
+.media-editor-upload { position: relative; justify-self: start; display: inline-flex; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.media-editor-upload:hover { background: var(--surface-soft); }
+.media-editor-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.media-editor-upload:has(input:disabled) { opacity: .55; cursor: default; }
+.media-editor-reference { display: flex; align-items: center; gap: 12px; }
+.media-editor-reference img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); }
+.media-editor-reference .button, .media-editor-details > .button { justify-self: start; font-size: 12px; padding: 7px 12px; }
+.media-editor-add { display: flex; align-items: flex-end; gap: 8px; padding: 6px 0; }
+.media-editor-add > label { max-width: 170px; flex: 1; }
+.media-editor-add > .button { font-size: 12px; padding: 9px 14px; border-radius: 8px; min-height: 36px; }
+.media-editor-connection-tools { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; padding: 2px 0; }
+.media-editor-connections { min-width: 0; flex: 1; }
+.media-editor-connections summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 6px 0; }
+.media-editor-connections[open] { display: grid; gap: 10px; }
+.media-editor-refresh { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 0; cursor: pointer; flex: none; }
+.media-editor-refresh:hover:not(:disabled) { color: var(--text); }
+.media-editor-refresh:disabled { opacity: .55; cursor: default; }
+@media (max-width: 480px) {
+  .media-editor-heading { padding-left: 6px; }
+  .media-editor-disclosure { gap: 8px; padding: 14px 10px 14px 4px; }
+  .media-editor-glyph { width: 28px; }
+  .media-editor-details { padding: 14px; }
+  .media-editor-source-settings { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .media-editor-chevron { transition: none; } }

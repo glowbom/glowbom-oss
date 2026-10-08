@@ -2,6 +2,109 @@
 
 The CLI starts the local Glowbom OSS workflow and checks its tools with `glowbom doctor`. See the [main README](../README.md) for setup.
 
+## Start the local workflow
+
+From this source directory, run:
+
+```sh
+go run . start
+```
+
+The launcher shows **Building backend from source...** while Go compiles the
+backend. A first build can take more than a minute. After compilation succeeds,
+**Starting backend...** begins a separate 30-second health check, followed by the web UI.
+Compilation errors appear in the terminal, and a failed build leaves any running
+Glowbom services available. Press Control-C to cancel or stop the local workflow.
+
+### Separate local instances
+
+`glowbom start` defaults to the public `web/` shell and uses backend port 4569,
+web port 4572, agent port 4571, and instance name `oss`. `GLOWBOM_AGENT_PORT`
+remains a supported default override. All three services use loopback addresses.
+
+A compatible alternate shell can run beside it:
+
+```sh
+glowbom start --web-dir /absolute/path/to/web --backend-port 4591 --web-port 4592 --agent-port 4593 --instance alternate --no-browser
+```
+
+The alternate directory must be absolute. Instance names use lowercase letters,
+digits, and hyphens, begin with a letter, and contain at most 48 characters.
+Ports must be different and between 1 and 65535. The backend still comes from the
+current OSS checkout, whose `backend/` and `web/` directories must be siblings.
+`--no-browser`, `--show-local-auth`, and the `code` alias remain supported.
+
+Each instance holds its own lock until it exits. A second launch of the same
+instance fails promptly. Any occupied selected port also stops startup without
+reusing or killing its listener. Stop the existing launch with Control-C before
+restarting it, including an older launcher from before this isolation change.
+Shutdown and failed startup stop only the process trees created by that launch.
+State files record the instance, launch ID, ports, and owned process IDs without
+credentials; they are not used as permission to stop arbitrary processes.
+
+The launcher supplies matching backend and web tokens and permits only its web
+and backend loopback origins. Named or custom-shell launches receive fresh
+credentials. Default launches still accept explicit `GLOWBOM_SERVER_TOKEN`, its
+legacy `GLOWBY_SERVER_TOKEN` alias, and `OPENCODE_SERVER_PASSWORD`. Credentials
+are printed only when `--show-local-auth` is explicitly requested.
+Inherited packaged-app paths, routing overrides, and `OPENCODE_URL` are cleared
+so the selected local ports control the launch. Provider connections and coding
+agent executable preferences stay available.
+
+A compatible shell reads `GLOWBOM_WEB_PORT`, `VITE_BACKEND_TARGET`, and
+`VITE_GLOWBOM_SERVER_TOKEN`, binds to `127.0.0.1`, and refuses automatic port
+fallback. It serves `GET /__glowbom/launch` as JSON containing `instance` and
+`launchId` from `GLOWBOM_INSTANCE` and `GLOWBOM_LAUNCH_ID`. These are public
+process identity values, not authentication credentials. Do not return the
+backend token from this endpoint. Readiness requires this exact identity from
+the shell and backend `/healthz`; HTTP success by itself is insufficient.
+A supervising launcher can supply a fresh `GLOWBOM_LAUNCH_ID` consisting of 32
+lowercase hexadecimal characters to identify the process it started.
+
+### Linux folder picker
+
+Opening or saving a project needs `zenity`, `qarma`, `yad`, or `kdialog` on
+the backend's `PATH`. `glowbom doctor` reports whether one is available.
+
+When a Linux desktop session has no supported picker, `glowbom start` installs
+Zenity before starting the services. It uses Omarchy's package command when
+running in a terminal on Omarchy, or pacman, apt-get, dnf, or zypper elsewhere.
+Your system may ask for an administrator password through the terminal or a
+desktop authorization dialog. An existing supported picker is left in place.
+
+If installation fails, the launcher prints an install command and continues.
+Without a desktop session, it prints that command and skips installation.
+You can install the tool yourself and retry the folder picker without restarting
+Glowbom. On Omarchy, run:
+
+```sh
+omarchy pkg add zenity
+```
+
+On Arch Linux without Omarchy, run `sudo pacman -S --needed zenity`.
+This setup behavior is in the current CLI source. From this directory, use
+`go run . start` to try it before updating an older installed CLI.
+
+## OpenCode versions
+
+Glowbom detects the installed OpenCode version and chooses the matching server
+arguments and API adapter. `glowbom doctor` shows the version, adapter, executable,
+and version preference. From this directory, run `go run . doctor`.
+
+Tools settings offers Automatic, OpenCode 1, and OpenCode 2. Automatic checks PATH
+first, then common installation folders.
+Restart Glowbom after changing the preference. Selecting a version requires that
+version to be installed; Glowbom does not replace an installation.
+
+For a particular executable, set `GLOWBOM_OPENCODE_BIN` to its path. Set
+`GLOWBOM_OPENCODE_VERSION` to `auto`, `v1`, or `v2` to override the saved preference.
+These settings apply to both `doctor` and backend startup. `OPENCODE_URL` uses the
+configured server, whose API version is detected through its health endpoint.
+
+The V2 adapter targets the native API checked with OpenCode 2.0.21. Automated
+tests cover chat, model lists, session lifecycle, streaming, and replies. A real
+provider generation still needs a manual check with the selected account.
+
 ## Optional Glowbom account
 
 This source includes browser login, allowance reads, logout, hosted image generation, saved project downloads, a clean starter download, and combined project exports. A Glowbom account is not required for `doctor`, `start`, or `template`. Build from this source to try commands that may not yet be in your installed CLI release.
@@ -18,16 +121,17 @@ On a remote server, use `glowbom login --device-auth --no-browser` and open the 
 
 `glowbom login --no-browser` alone still uses localhost: open its printed link in a browser on the same computer. Keep the login command running until it confirms the connection.
 
-`glowbom account` displays your subscription category and remaining generation allowance. Credentials refresh automatically when needed; use `glowbom account --refresh` to refresh immediately. `glowbom logout` removes the credentials from the selected store on this machine. Your browser and other machines remain signed in.
+`glowbom account` displays your subscription category and remaining Glowbom credits. One dollar of generation allowance equals 200 credits, so a $20 allowance is 4,000 credits. Credentials refresh automatically when needed; use `glowbom account --refresh` to refresh immediately. `glowbom logout` removes the credentials from the selected store on this machine. Your browser and other machines remain signed in.
 
 ### Structured account status
 
 `glowbom account --json` returns a versioned status for local applications, with
-no tokens or generation balances. The normal account command's text output is
-unchanged. `--refresh` can be combined with `--json`.
+no tokens or dollar balances. Optional `remainingCredits` and `allowanceCredits`
+fields report credits when the account service provides a balance. Missing values
+mean unavailable, not zero. `--refresh` can be combined with `--json`.
 
 ```json
-{"version":1,"status":"signed_in","uid":"example-user","email":"person@example.com","subscriptionStatus":"premium"}
+{"version":1,"status":"signed_in","uid":"example-user","email":"person@example.com","subscriptionStatus":"premium","remainingCredits":2500,"allowanceCredits":4000}
 ```
 
 `status` is `signed_in`, `signed_out`, or `unavailable`. Signed-in responses include
@@ -159,7 +263,11 @@ From this source directory, use `go run . generate-image ...` in place of `glowb
 
 Credentials use the system keyring by default. On headless macOS or Linux, explicitly set `GLOWBOM_CREDENTIAL_STORE=file` to use a private file instead. There is no automatic fallback. Use the same setting for login, account, and logout.
 
-The file store uses the operating system's user configuration directory, under `glowbom/accounts`, with directory mode 0700 and file mode 0600. `GLOWBOM_CONFIG_DIR` can select a different absolute directory. Keep it outside projects and source control. Never share credential files.
+The file store uses the operating system's user configuration directory, under `glowbom/accounts`, with directory mode 0700 and file mode 0600. `GLOWBOM_CONFIG_DIR` can select a different absolute directory. The CLI rejects locations inside source checkouts, recognized project roots, or your current working folder, including paths that reach them through symlinks. It checks parent folders too, so running from a project subfolder does not bypass the rule. Home and the filesystem root are not treated as projects merely because you run the CLI there. Existing external credential files and the default keyring continue to work. Never share credential files.
+
+Detection uses repository markers, Glowbom project records (`glowbom.json`, `.glowbom/studio.json`, `.glowbom/chat.json`, and `project-book/book.json`), the `backend/` plus `web/` source layout, and common language manifests such as `package.json`, `go.mod`, and `Cargo.toml`. A plain `.glowbom` user settings directory does not mark your home as a project. The CLI cannot identify unrelated, unmarked project folders automatically; choose a dedicated user configuration directory and keep it out of source archives.
+
+If an old file-store location is rejected, choose a private directory outside your projects and run `glowbom login` again. Remove the old credential file separately and keep it out of source archives. The CLI does not move or copy rejected credentials.
 
 `GLOWBOM_ACCOUNT_API_URL` and `GLOWBOM_LOGIN_URL` override the hosted API and browser sign-in addresses. Only use endpoints you trust: they receive your account credentials. HTTPS is required. For a local test server, set `GLOWBOM_AUTH_LOCAL=1` and set both addresses to HTTP loopback URLs. Credentials for different API addresses are stored separately.
 

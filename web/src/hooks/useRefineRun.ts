@@ -1,6 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { openCodeApi, toErrorMessage } from '../lib/api';
-import { streamJsonSse } from '../lib/sse';
+import { canContinueRefineSession } from '../lib/refine-session';
+import { useJevForBuild } from '../lib/build-settings';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError, companionApi, openCodeApi, toErrorMessage, type CompanionBuildJob } from '../lib/api';
+import { canonicalProjectPath } from '../lib/chat';
+import { streamConfirmedSse } from '../lib/sse';
+import { parseBuildStatusUpdate, type BuildStatusUpdate } from '../lib/build-status';
+import { normalizeMediaApproval } from '../lib/media-approval';
+import { agentPermissionResponses, normalizePermissionResponses } from '../lib/agent-permissions';
+import { buildMediaApprovalResponse } from '../lib/build-media-approval';
+import { companionJobIsTerminal, RefineRunConnection } from '../lib/refine-run-connection';
 import type {
   OpenCodeAgentRequest,
   OpenCodeMediaApproval,
@@ -21,17 +29,22 @@ import type {
 export type RefineRunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface StartRefineInput {
-  agentDriver?: 'opencode' | 'cursor';
+  permissionMode?: 'ask' | 'all';
+  onAccepted?(): void;
+  agentDriver?: 'opencode' | 'cursor' | 'claude-code' | 'codex' | 'acp';
+  agentName?: string;
   projectPath: string;
   instructions?: string;
   buildTargets?: string[];
   persistCurrentInstructionsToHistory?: boolean;
   instructionAttachmentPaths?: string[];
   model?: string;
+  reasoningEffort?: string;
   openaiAuthMode: OpenAIAuthMode;
   openaiRefreshToken?: string;
   openaiExpiresAt?: number;
   providerKeys: ProviderKeyState;
+  elevenLabsUseSavedKey?: boolean;
   imageProviderKeys: ImageProviderKeyState;
   imageSource?: string;
 }
@@ -46,8 +59,13 @@ function toStringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function validRunID(value: unknown): string {
+  const candidate = toStringValue(value).trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(candidate) ? candidate : '';
+}
+
 function extractSessionIDFromText(text: string): string {
-  const match = text.match(/Session (?:created|resumed):\s*([A-Za-z0-9_-]+)/i);
+  const match = text.match(/Session (?:created|resumed):\s*([A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+){0,3})/i);
   return match?.[1] || '';
 }
 
@@ -336,50 +354,8 @@ function normalizePermission(raw: unknown, fallbackSessionID: string): OpenCodeP
     type: toStringValue(record.type),
     message: toStringValue(record.message),
     pattern: toStringValue(record.pattern),
-  };
-}
-
-function normalizeMediaApproval(raw: unknown): OpenCodeMediaApproval | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const id = toStringValue(record.id);
-  if (!id) {
-    return null;
-  }
-
-  const rawItems = Array.isArray(record.items) ? record.items : [];
-  const items = rawItems
-    .map((rawItem): OpenCodeMediaApprovalItem | null => {
-      if (!rawItem || typeof rawItem !== 'object') {
-        return null;
-      }
-      const item = rawItem as Record<string, unknown>;
-      const prompt = toStringValue(item.prompt);
-      const mediaType = toStringValue(item.mediaType);
-      if (!prompt || !mediaType) {
-        return null;
-      }
-      return {
-        mediaType,
-        prompt,
-        provider: toStringValue(item.provider),
-        audioType: toStringValue(item.audioType) || undefined,
-      };
-    })
-    .filter((item): item is OpenCodeMediaApprovalItem => item !== null);
-
-  if (items.length === 0) {
-    return null;
-  }
-
-  return {
-    id,
-    title: toStringValue(record.title) || 'Generate new media assets?',
-    message: toStringValue(record.message),
-    items,
+    availableResponses: normalizePermissionResponses(record.availableResponses, sessionID, toStringValue(record.id)),
+    buildApprovalTool: toStringValue(record.buildApprovalTool) || undefined,
   };
 }
 
@@ -403,20 +379,64 @@ export function useRefineRun() {
   const [status, setStatus] = useState<RefineRunStatus>('idle');
   const [logs, setLogs] = useState<string[]>([]);
   const [partialLine, setPartialLine] = useState('');
+  const [liveStatuses, setLiveStatuses] = useState<BuildStatusUpdate[]>([]);
   const [pendingQuestion, setPendingQuestion] = useState<OpenCodeQuestion | null>(null);
   const [pendingPermission, setPendingPermission] = useState<OpenCodePermission | null>(null);
   const [pendingMediaApproval, setPendingMediaApproval] = useState<OpenCodeMediaApproval | null>(null);
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+  const [resultText, setResultText] = useState('');
   const [changedFiles, setChangedFiles] = useState<string[]>([]);
   const [continueSession, setContinueSession] = useState(true);
   const [hasSession, setHasSession] = useState(false);
+  const [request, setRequest] = useState('');
+  const [runModel, setRunModel] = useState('');
+  const [runPermissionMode, setRunPermissionMode] = useState<'ask' | 'all'>('ask');
+  const [runAgentName, setRunAgentName] = useState('');
+  const [runReasoningEffort, setRunReasoningEffort] = useState('');
+  const [runId, setRunId] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [runProjectPath, setRunProjectPath] = useState('');
+  const [isSteerable, setIsSteerable] = useState(false);
+  const [hasBeenSteerable, setHasBeenSteerable] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
 
   const currentProjectPathRef = useRef('');
   const currentDriverRef = useRef('opencode');
+  const currentModelRef = useRef('');
   const lastSessionIDRef = useRef('');
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const resolvedDecisionIDsRef = useRef(new Set<string>());
+  const connectionRef = useRef<RefineRunConnection | null>(null);
+  const runStartedAtRef = useRef<number | null>(null);
+  const applyCompanionJobRef = useRef<(job: CompanionBuildJob) => boolean>(() => false);
+
+  const createConnection = useCallback(() => {
+    const connection = new RefineRunConnection({
+      cancel: async id => {
+        try { return await companionApi.cancelBuild(id); }
+        catch (cause) {
+          if (cause instanceof ApiError && cause.status === 409) return companionApi.getStatus();
+          throw cause;
+        }
+      },
+      onStopping: stopping => { if (connectionRef.current === connection) setIsStopping(stopping); },
+      onCancelled: job => {
+        if (connectionRef.current !== connection) return;
+        applyCompanionJobRef.current(job);
+        setIsConnected(false);
+      },
+      onCancelError: cause => {
+        if (connectionRef.current === connection) setError(toErrorMessage(cause, 'Could not confirm that Desktop stopped this build. Check the connection and try again.'));
+      },
+    });
+    return connection;
+  }, []);
+
+  useEffect(() => () => { connectionRef.current?.dispose(); connectionRef.current = null; }, []);
 
   const appendLines = useCallback((incoming: string[]) => {
     if (incoming.length === 0) {
@@ -438,6 +458,76 @@ export function useRefineRun() {
       return next.length > 1000 ? next.slice(-1000) : next;
     });
   }, []);
+
+  const reconcileCompanionDecisions = useCallback((decisions: { kind: 'permission' | 'question' | 'media'; id: string }[]) => {
+    for (const decision of decisions) if (decision.id) resolvedDecisionIDsRef.current.add(`${decision.kind}/${decision.id}`);
+    const permissions = new Set(decisions.filter(decision => decision.kind === 'permission').map(decision => decision.id));
+    const questions = new Set(decisions.filter(decision => decision.kind === 'question').map(decision => decision.id));
+    const media = new Set(decisions.filter(decision => decision.kind === 'media').map(decision => decision.id));
+    setPendingPermission(current => current?.id && permissions.has(current.id) ? null : current);
+    setPendingQuestion(current => current?.id && questions.has(current.id) ? null : current);
+    setPendingMediaApproval(current => current?.id && media.has(current.id) ? null : current);
+  }, []);
+
+  const applyCompanionJob = useCallback((job: CompanionBuildJob): boolean => {
+    const id = validRunID(job.id);
+    if (!id || job.kind === 'image') return false;
+    let connection = connectionRef.current;
+    if (connection?.jobId && connection.jobId !== id) return false;
+    if (connection && !connection.jobId && currentProjectPathRef.current && canonicalProjectPath(currentProjectPathRef.current) !== canonicalProjectPath(job.projectPath)) return false;
+    if (!connection) {
+      connection = createConnection();
+      connectionRef.current = connection;
+    }
+    if (!connection.identify(id)) return false;
+    setJobId(id);
+    reconcileCompanionDecisions(job.resolvedDecisions || []);
+    const terminal = companionJobIsTerminal(job);
+    if (job.permissionMode === 'all' || job.permissionMode === 'ask') setRunPermissionMode(current => current === 'all' ? current : job.permissionMode!);
+    if (connection.connected && !terminal) return true;
+    if (connection.terminal && !terminal) return false;
+
+    currentProjectPathRef.current = job.projectPath;
+    currentDriverRef.current = job.agentDriver || 'opencode';
+    currentModelRef.current = job.model || '';
+    lastSessionIDRef.current = job.sessionID || '';
+    setHasSession(!!lastSessionIDRef.current);
+    setRunProjectPath(job.projectPath);
+    setRunId(validRunID(job.runId));
+    setRequest(job.instructions || '');
+    setRunModel(job.model || '');
+    setRunAgentName(job.agentName || '');
+    setRunReasoningEffort(job.reasoningEffort || '');
+    setLogs((job.output || []).filter((line): line is string => typeof line === 'string').slice(-1000));
+    setPartialLine(job.partialLine || '');
+    const updates = (job.liveStatuses || (job.buildStatus ? [job.buildStatus] : [])).map(parseBuildStatusUpdate).filter((update): update is BuildStatusUpdate => !!update);
+    setLiveStatuses(updates.slice(-12));
+    setChangedFiles(sanitizeChangedFiles(job.changedFiles));
+    setResultText(job.resultText || '');
+    const start = Date.parse(job.startedAt);
+    runStartedAtRef.current = Number.isFinite(start) ? start : null;
+    setStartedAt(runStartedAtRef.current);
+    const finish = Date.parse(job.finishedAt || '');
+    setFinishedAt(terminal ? Number.isFinite(finish) ? finish : Date.now() : null);
+    const permission = normalizePermission(job.pendingPermission, lastSessionIDRef.current);
+    const question = normalizeQuestion(job.pendingQuestion, lastSessionIDRef.current);
+    const media = normalizeMediaApproval(job.pendingMediaApproval);
+    setPendingPermission(terminal || (permission?.id && resolvedDecisionIDsRef.current.has(`permission/${permission.id}`)) ? null : permission);
+    setPendingQuestion(terminal || (question?.id && resolvedDecisionIDsRef.current.has(`question/${question.id}`)) ? null : question);
+    setPendingMediaApproval(terminal || (media?.id && resolvedDecisionIDsRef.current.has(`media/${media.id}`)) ? null : media);
+    const nextStatus: RefineRunStatus = job.status === 'completed' ? 'completed' : job.status === 'failed' ? 'failed' : terminal ? 'cancelled' : 'running';
+    setStatus(nextStatus);
+    setError(nextStatus === 'failed' ? userFacingAgentErrorMessage(job.error || 'Build failed.') : terminal ? null : job.error || null);
+    setSummary(nextStatus === 'completed' ? 'Build completed.' : nextStatus === 'cancelled' ? 'Build stopped.' : nextStatus === 'failed' ? userFacingAgentErrorMessage(job.error || 'Build failed.') : null);
+    if (terminal) {
+      connection.complete(job.status);
+      setIsSubmittingInput(false);
+      setIsConnected(false);
+      setIsSteerable(false);
+    }
+    return true;
+  }, [createConnection, reconcileCompanionDecisions]);
+  applyCompanionJobRef.current = applyCompanionJob;
 
   const appendLine = useCallback(
     (line: string) => {
@@ -566,9 +656,28 @@ export function useRefineRun() {
 
   const handleSseEvent = useCallback(
     (event: OpenCodeSseEvent) => {
+      if (event.permissionMode === 'all' || event.permissionMode === 'ask') setRunPermissionMode(current => current === 'all' ? current : event.permissionMode!);
+      if (typeof event.agentName === 'string') setRunAgentName(event.agentName.trim().slice(0, 160));
+      if (typeof event.sessionID === 'string' && event.sessionID.length <= 2048) {
+        lastSessionIDRef.current = event.sessionID;
+        setHasSession(!!event.sessionID);
+      }
+      const streamedRunID = validRunID(event.runId);
+      if (streamedRunID) setRunId(streamedRunID);
+      if (typeof event.steerable === 'boolean') {
+        setIsSteerable(event.steerable);
+        if (event.steerable) setHasBeenSteerable(true);
+      }
+      if (event.status) {
+        const update = parseBuildStatusUpdate(event.status);
+        if (update) setLiveStatuses((previous) => {
+          if (previous.at(-1)?.text === update.text) return previous;
+          return [...previous, update].slice(-12);
+        });
+      }
       if (event.question) {
         const question = normalizeQuestion(event.question, lastSessionIDRef.current);
-        if (question) {
+        if (question && !resolvedDecisionIDsRef.current.has(`question/${question.id}`)) {
           if (question.sessionID) {
             lastSessionIDRef.current = question.sessionID;
           }
@@ -580,7 +689,7 @@ export function useRefineRun() {
 
       if (event.permission) {
         const permission = normalizePermission(event.permission, lastSessionIDRef.current);
-        if (permission) {
+        if (permission && !resolvedDecisionIDsRef.current.has(`permission/${permission.id}`)) {
           if (permission.sessionID) {
             lastSessionIDRef.current = permission.sessionID;
           }
@@ -592,7 +701,7 @@ export function useRefineRun() {
 
       if (event.mediaApproval) {
         const approval = normalizeMediaApproval(event.mediaApproval);
-        if (approval) {
+        if (approval && !resolvedDecisionIDsRef.current.has(`media/${approval.id}`)) {
           setPendingMediaApproval(approval);
           setPendingQuestion(null);
           setPendingPermission(null);
@@ -606,6 +715,9 @@ export function useRefineRun() {
       if (typeof event.output === 'string') {
         appendOutputMessage(event.output);
       }
+      if (typeof event.resultText === 'string') {
+        setResultText(event.resultText.trim());
+      }
 
       if (event.changedFiles) {
         updateChangedFiles(event.changedFiles);
@@ -616,10 +728,20 @@ export function useRefineRun() {
       }
 
       if (event.done) {
+        setIsSubmittingInput(false);
+        setFinishedAt(Date.now());
+        setIsSteerable(false);
         flushPartialLine();
         setPendingPermission(null);
         setPendingQuestion(null);
         setPendingMediaApproval(null);
+
+        if (event.cancelled || event.jobStatus === 'canceled' || event.jobStatus === 'cancelled') {
+          setStatus('cancelled');
+          setError(null);
+          setSummary('Build stopped.');
+          return;
+        }
 
         if (event.success === true) {
           setStatus('completed');
@@ -649,6 +771,8 @@ export function useRefineRun() {
 
   const startRefine = useCallback(
     async (input: StartRefineInput) => {
+      const permissionMode = input.permissionMode === 'all' ? 'all' : 'ask';
+      const onAccepted = input.onAccepted;
       const projectPath = input.projectPath.trim();
       if (!projectPath) {
         setStatus('failed');
@@ -659,29 +783,46 @@ export function useRefineRun() {
 
       const model = (input.model || '').trim();
 
-      abortControllerRef.current?.abort();
+      connectionRef.current?.dispose();
+      connectionRef.current = null;
+      resolvedDecisionIDsRef.current.clear();
 
-      // Clear session if toggle is off or project changed.
-      if (!continueSession || currentProjectPathRef.current !== projectPath || currentDriverRef.current !== (input.agentDriver || 'opencode')) {
+      // ACP connections keep independent sessions when the selected connection changes.
+      if (!canContinueRefineSession({ projectPath: currentProjectPathRef.current, driver: currentDriverRef.current, model: currentModelRef.current }, { projectPath, driver: input.agentDriver || 'opencode', model }, continueSession)) {
         lastSessionIDRef.current = '';
         setHasSession(false);
       }
       currentProjectPathRef.current = projectPath;
       currentDriverRef.current = input.agentDriver || 'opencode';
+      currentModelRef.current = model;
+      setRunProjectPath(projectPath);
 
       setStatus('running');
+      setRunPermissionMode('ask');
+      runStartedAtRef.current = Date.now();
+      setStartedAt(runStartedAtRef.current);
+      setFinishedAt(null);
+      setIsSteerable(false);
+      setHasBeenSteerable(false);
       setError(null);
       setSummary(null);
+      setResultText('');
       setLogs([]);
       setPartialLine('');
+      setLiveStatuses([]);
       setPendingQuestion(null);
       setPendingPermission(null);
       setPendingMediaApproval(null);
       setChangedFiles([]);
       setIsSubmittingInput(false);
+      setIsStopping(false);
+      setIsConnected(false);
+      setJobId('');
 
       const payload: OpenCodeAgentRequest = {
+        useJev: useJevForBuild(input.agentDriver),
         agentDriver: input.agentDriver,
+        permissionMode,
         projectPath,
         openaiAuthMode: input.openaiAuthMode,
         mediaGenerationPolicy: 'ask',
@@ -696,8 +837,14 @@ export function useRefineRun() {
       if (model) {
         payload.model = model;
       }
+      if (input.agentDriver === 'codex' && input.reasoningEffort) payload.reasoningEffort = input.reasoningEffort;
 
       const trimmedInstructions = input.instructions?.trim() || '';
+      setRequest(trimmedInstructions);
+      setRunModel(model);
+      setRunAgentName(input.agentDriver === 'acp' ? input.agentName || '' : '');
+      setRunReasoningEffort(input.agentDriver === 'codex' ? input.reasoningEffort || '' : '');
+      setRunId('');
       if (trimmedInstructions) {
         payload.instructions = trimmedInstructions;
       }
@@ -744,6 +891,8 @@ export function useRefineRun() {
       }
       if (elevenLabsKey) {
         payload.elevenLabsKey = elevenLabsKey;
+      } else if (input.elevenLabsUseSavedKey === true) {
+        payload.elevenLabsUseSavedKey = true;
       }
       if (openaiImageKey) {
         payload.openaiImageKey = openaiImageKey;
@@ -770,28 +919,61 @@ export function useRefineRun() {
         }
       }
 
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
+      const connection = createConnection();
+      connectionRef.current = connection;
+
+      const identifyJob = (id: unknown) => {
+        const value = validRunID(id);
+        if (connectionRef.current === connection && value && connection.identify(value)) setJobId(value);
+      };
 
       try {
-        await streamJsonSse<OpenCodeAgentRequest, OpenCodeSseEvent>({
+        const completion = await streamConfirmedSse<OpenCodeAgentRequest, OpenCodeSseEvent>({
           url: '/api/opencode/refine',
           body: payload,
-          signal: controller.signal,
-          onEvent: handleSseEvent,
+          signal: connection.controller.signal,
+          onEvent: event => {
+            if (connectionRef.current !== connection) return;
+            identifyJob(event.jobId);
+            if (connection.terminal && !event.done) return;
+            if (connection.terminalStatus && event.done) return;
+            handleSseEvent(event);
+            if (event.done) { connection.complete(); setIsConnected(false); }
+          },
+          onResponse: response => {
+            if (connectionRef.current !== connection) return;
+            connection.accepted = true;
+            setRunPermissionMode(permissionMode);
+            onAccepted?.();
+            connection.connected = true;
+            setIsConnected(true);
+            identifyJob(response.headers.get('X-Glowbom-Job-ID'));
+            const headerRunID = validRunID(response.headers.get('X-Glowbom-Run-ID'));
+            if (headerRunID) setRunId(headerRunID);
+          },
         });
 
+        if (connectionRef.current !== connection) return;
         flushPartialLine();
-        setStatus((previous) => (previous === 'running' ? 'completed' : previous));
-        setSummary((previous) => previous || 'Build completed.');
+        if (completion.success === true) {
+          setFinishedAt((previous) => previous ?? Date.now());
+          setStatus((previous) => (previous === 'running' ? 'completed' : previous));
+          setSummary((previous) => previous || 'Build completed.');
+        }
       } catch (requestError) {
-        flushPartialLine();
+        if (connectionRef.current !== connection || connection.terminal) return;
+        connection.connected = false;
+        setIsConnected(false);
+        setIsSteerable(false);
 
-        if (isAbortError(requestError)) {
-          setStatus((previous) => (previous === 'running' ? 'cancelled' : previous));
-          setSummary((previous) => previous || 'Build stopped.');
-          appendLine('⏹️ Build stopped.');
+        if (connection.accepted || isAbortError(requestError) || requestError instanceof TypeError) {
+          if (!connection.detached) setError(connection.accepted
+            ? 'The progress connection was interrupted. Desktop keeps building; reconnect to see its progress.'
+            : 'Could not confirm the build connection. Reconnect to Desktop and check its progress before starting another build.');
         } else {
+          connection.complete();
+          setFinishedAt(Date.now());
+          flushPartialLine();
           const message = toErrorMessage(requestError, 'Build failed.');
           setStatus('failed');
           setError(message);
@@ -799,14 +981,25 @@ export function useRefineRun() {
           appendLine(`❌ ${message}`);
         }
       } finally {
-        abortControllerRef.current = null;
+        if (connectionRef.current === connection) {
+          connection.connected = false;
+          setIsConnected(false);
+          setIsSteerable(false);
+        }
       }
     },
-    [appendLine, flushPartialLine, handleSseEvent],
+    [appendLine, continueSession, createConnection, flushPartialLine, handleSseEvent],
   );
 
   const stopRun = useCallback(() => {
-    abortControllerRef.current?.abort();
+    setIsSteerable(false);
+    connectionRef.current?.requestStop();
+  }, []);
+
+  const disconnectRun = useCallback(() => {
+    connectionRef.current?.disconnect();
+    setIsConnected(false);
+    setIsSteerable(false);
   }, []);
 
   const submitQuestion = useCallback(
@@ -816,6 +1009,7 @@ export function useRefineRun() {
       }
 
       const question = pendingQuestion;
+      const connection = connectionRef.current;
       const payload: OpenCodeQuestionRespondRequest = {
         sessionID: question.sessionID,
         questionID: question.id,
@@ -834,6 +1028,8 @@ export function useRefineRun() {
       setIsSubmittingInput(true);
       try {
         await openCodeApi.respondToQuestion(payload);
+        if (connectionRef.current !== connection) return false;
+        resolvedDecisionIDsRef.current.add(`question/${question.id}`);
         setPendingQuestion(null);
         setPendingPermission(null);
         setError(null);
@@ -842,12 +1038,13 @@ export function useRefineRun() {
         appendLine(trimmed ? `A: ${trimmed}` : 'A: (dismissed)');
         return true;
       } catch (requestError) {
+        if (connectionRef.current !== connection) return false;
         const message = toErrorMessage(requestError, 'Failed to send answer.');
         setError(message);
         appendLine(`❌ ${message}`);
         return false;
       } finally {
-        setIsSubmittingInput(false);
+        if (connectionRef.current === connection) setIsSubmittingInput(false);
       }
     },
     [appendLine, isSubmittingInput, pendingQuestion],
@@ -860,6 +1057,11 @@ export function useRefineRun() {
       }
 
       const permission = pendingPermission;
+      if (!agentPermissionResponses(permission).includes(response)) {
+        setError('This permission choice is no longer available. Choose one of the options shown.');
+        return false;
+      }
+      const connection = connectionRef.current;
       const payload: OpenCodePermissionRespondRequest = {
         sessionID: permission.sessionID,
         permissionID: permission.id,
@@ -869,49 +1071,53 @@ export function useRefineRun() {
 
       setIsSubmittingInput(true);
       try {
-        await openCodeApi.respondToPermission(payload);
-        setPendingPermission(null);
-        setPendingQuestion(null);
+        const result = await openCodeApi.respondToPermission(payload);
+        if (!result.ok) throw new Error('Desktop could not confirm this permission response.');
+        if (connectionRef.current !== connection) return false;
+        resolvedDecisionIDsRef.current.add(`permission/${permission.id}`);
+        if (response === 'all') setRunPermissionMode('all');
+        setPendingPermission((current) => current?.id === permission.id && current.sessionID === permission.sessionID ? null : current);
         setError(null);
         appendLine(`Permission response sent: ${response}`);
         return true;
       } catch (requestError) {
+        if (connectionRef.current !== connection) return false;
         const message = toErrorMessage(requestError, 'Failed to send permission response.');
         setError(message);
         appendLine(`❌ ${message}`);
         return false;
       } finally {
-        setIsSubmittingInput(false);
+        if (connectionRef.current === connection) setIsSubmittingInput(false);
       }
     },
     [appendLine, isSubmittingInput, pendingPermission],
   );
 
   const respondToMediaApproval = useCallback(
-    async (response: OpenCodeMediaApprovalRespondRequest['response']) => {
+    async (response: OpenCodeMediaApprovalRespondRequest['response'], items?: OpenCodeMediaApprovalItem[]) => {
       if (!pendingMediaApproval || isSubmittingInput) {
         return false;
       }
 
       const approval = pendingMediaApproval;
+      const connection = connectionRef.current;
       setIsSubmittingInput(true);
       try {
-        await openCodeApi.respondToMediaApproval({
-          approvalID: approval.id,
-          response,
-          projectPath: currentProjectPathRef.current || undefined,
-        });
+        await openCodeApi.respondToMediaApproval(buildMediaApprovalResponse(approval, response, currentProjectPathRef.current, items || approval.items));
+        if (connectionRef.current !== connection) return false;
+        resolvedDecisionIDsRef.current.add(`media/${approval.id}`);
         setPendingMediaApproval(null);
         setError(null);
         appendLine(response === 'generate' ? 'Media generation approved.' : 'Media generation skipped.');
         return true;
       } catch (requestError) {
+        if (connectionRef.current !== connection) return false;
         const message = toErrorMessage(requestError, 'Failed to send media approval response.');
         setError(message);
         appendLine(`❌ ${message}`);
         return false;
       } finally {
-        setIsSubmittingInput(false);
+        if (connectionRef.current === connection) setIsSubmittingInput(false);
       }
     },
     [appendLine, isSubmittingInput, pendingMediaApproval],
@@ -922,23 +1128,42 @@ export function useRefineRun() {
       status,
       logs,
       partialLine,
+      liveStatuses,
       pendingQuestion,
       pendingPermission,
       pendingMediaApproval,
-      isSubmittingInput,
+      isSubmittingInput: isSubmittingInput || isStopping,
+      isStopping,
+      isConnected,
       error,
       summary,
+      resultText,
       changedFiles,
       isRunning: status === 'running',
+      isSteerable,
+      hasBeenSteerable,
+      startedAt,
+      finishedAt,
       isAwaitingInput: pendingQuestion !== null || pendingPermission !== null || pendingMediaApproval !== null,
       hasSession,
+      request,
+      model: runModel,
+      permissionMode: runPermissionMode,
+      agentName: runAgentName,
+      reasoningEffort: runReasoningEffort,
+      runId,
+      jobId,
+      projectPath: runProjectPath,
       continueSession,
       setContinueSession,
       startRefine,
       stopRun,
+      disconnectRun,
+      applyCompanionJob,
       submitQuestion,
       respondToPermission,
       respondToMediaApproval,
+      reconcileCompanionDecisions,
     }),
     [
       changedFiles,
@@ -946,18 +1171,39 @@ export function useRefineRun() {
       error,
       hasSession,
       isSubmittingInput,
+      isStopping,
+      isConnected,
+      isSteerable,
+      hasBeenSteerable,
+      startedAt,
+      finishedAt,
       logs,
       partialLine,
+      liveStatuses,
       pendingPermission,
       pendingMediaApproval,
       pendingQuestion,
+      request,
+      runModel,
+      runPermissionMode,
+      runAgentName,
+      runReasoningEffort,
+      runId,
+      jobId,
+      runProjectPath,
       respondToPermission,
       respondToMediaApproval,
+      reconcileCompanionDecisions,
       startRefine,
+      applyCompanionJob,
+      disconnectRun,
       status,
       stopRun,
       submitQuestion,
       summary,
+      resultText,
     ],
   );
 }
+
+export type RefineRun = ReturnType<typeof useRefineRun>;

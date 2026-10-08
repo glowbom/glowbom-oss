@@ -1,0 +1,4 @@
+.elevenlabs-model-selector { display: grid; gap: 8px; }
+.elevenlabs-model-selector label { font-size: 12px; font-weight: 600; }
+.elevenlabs-model-selector select, .elevenlabs-model-selector input { width: 100%; }
+.elevenlabs-model-selector p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }

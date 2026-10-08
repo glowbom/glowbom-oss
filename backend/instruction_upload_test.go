@@ -30,9 +30,10 @@ func TestInstructionUpload(t *testing.T) {
 	if result.Files[0].Path == result.Files[1].Path {
 		t.Fatal("duplicate names overwrote an upload")
 	}
-	for _, file := range result.Files {
+	for i, file := range result.Files {
 		relative, err := filepath.Rel(directory, file.Path)
-		if err != nil || !filepath.IsLocal(relative) || file.Name != "same.txt" {
+		want := []string{"same.txt", "same-2.txt"}[i]
+		if err != nil || !filepath.IsLocal(relative) || file.Name != want || filepath.Base(file.Path) != want {
 			t.Fatal(file)
 		}
 		data, err := os.ReadFile(file.Path)

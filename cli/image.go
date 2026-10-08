@@ -135,7 +135,7 @@ func (c *accountClient) generateImage(ctx context.Context, opts imageOptions) er
 		return err
 	}
 	if cost := result.Usage.Cost; result.Usage.Status == "settled" && cost != nil && *cost >= 0 && !math.IsNaN(*cost) && !math.IsInf(*cost, 0) {
-		fmt.Fprintf(c.out, "Generation cost: $%.4f\n", *cost)
+		fmt.Fprintf(c.out, "Generation cost: %s Glowbom credits\n", formatCredits(creditsFromUSD(cost)))
 	} else {
 		fmt.Fprintln(c.out, "Generation cost is pending confirmation; check glowbom account for your remaining allowance.")
 	}

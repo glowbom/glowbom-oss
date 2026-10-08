@@ -231,24 +231,24 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         color-scheme: light;
         --bg: #fafafa;
         --surface: #ffffff;
-        --surface-soft: #f3f8f6;
+        --surface-soft: #f5f5f5;
         --text: #2b2b2b;
         --muted: #5c5c5c;
-        --border: #dfe9e4;
-        --brand-green: #29de92;
-        --brand-cyan: #29ded3;
+        --border: #e2e2e2;
+        --brand-green: #111111;
+        --brand-cyan: #111111;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        background: linear-gradient(180deg, #eaf0ef 0%%, #f1f4f3 32%%, #f8f8f8 100%%);
+        background: linear-gradient(180deg, #f0f0f0 0%%, #f5f5f5 32%%, #fafafa 100%%);
         color: var(--text);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
       .topbar {
         height: 80px;
-        border-bottom: 1px solid #eef4f1;
+        border-bottom: 1px solid #ededed;
         background: #ffffff;
       }
       .topbar-inner {
@@ -291,7 +291,7 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         border: none;
         border-radius: 999px;
         padding: 11px 18px;
-        background-image: radial-gradient(circle farthest-side at 0%% 0%%, var(--brand-green), var(--brand-cyan));
+        background: var(--brand-green);
         color: #ffffff;
         font: inherit;
         font-weight: 600;
@@ -305,10 +305,10 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         gap: 12px;
       }
       .hero {
-        border: 1px solid #e2f0ea;
+        border: 1px solid #e6e6e6;
         border-radius: 16px;
-        background: linear-gradient(140deg, rgba(255, 255, 255, 0.98) 0%%, rgba(238, 250, 244, 0.98) 100%%);
-        box-shadow: 0 18px 44px rgba(41, 222, 146, 0.14);
+        background: linear-gradient(140deg, rgba(255, 255, 255, 0.98) 0%%, rgba(244, 244, 244, 0.98) 100%%);
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.08);
         padding: 22px 22px;
         display: grid;
         gap: 8px;
@@ -342,7 +342,7 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         gap: 7px;
       }
       a {
-        color: #177e52;
+        color: #111111;
         text-decoration: none;
         font-weight: 600;
       }
@@ -353,7 +353,7 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         font-size: 0.9rem;
       }
       code {
-        background: #f1f6f3;
+        background: #f2f2f2;
         border-radius: 6px;
         padding: 2px 6px;
       }
@@ -361,9 +361,9 @@ func glowbomBackendHomeHandler(w http.ResponseWriter, r *http.Request) {
         display: inline-flex;
         align-items: center;
         border-radius: 999px;
-        border: 1px solid #bfe6d3;
-        background: #effbf5;
-        color: #157047;
+        border: 1px solid #d8d8d8;
+        background: #f2f2f2;
+        color: #1c1c1c;
         font-size: 0.75rem;
         font-weight: 700;
         padding: 3px 9px;

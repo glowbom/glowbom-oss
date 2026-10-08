@@ -1,0 +1,14 @@
+.studio-image-settings { display: grid; gap: 12px; }
+.studio-image-settings label { display: grid; gap: 7px; min-width: 0; font-size: 12px; font-weight: 600; }
+.studio-image-settings select, .studio-image-settings input { width: 100%; }
+.studio-image-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.studio-image-cost { display: grid; gap: 5px; border: 1px solid var(--border); border-radius: 9px; padding: 12px; background: var(--surface); }
+.studio-image-cost strong { font-size: 13px; }
+.studio-image-cost p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.studio-image-cost small { color: var(--muted); font-size: 10px; }
+.studio-image-cost a { color: var(--text); text-underline-offset: 2px; }
+.studio-image-connection { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.studio-image-connection button { flex: none; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.studio-image-connection button:disabled { opacity: .45; cursor: default; }
+.studio-image-error { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; }
+@media (max-width: 600px) { .studio-image-option-grid { grid-template-columns: minmax(0, 1fr); } }

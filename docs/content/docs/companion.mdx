@@ -1,0 +1,90 @@
+---
+title: iOS and Vision Pro companion
+description: Connect your iPhone, iPad, or Vision Pro to projects and AI tools on Desktop.
+---
+
+Use Glowbom on **iPhone, iPad, or Vision Pro** to capture ideas, chat, review
+builds, and browse media. Desktop runs the tools and keeps your project files.
+
+The companion endpoints remain in the open backend. Pairing and creation
+screens in this guide belong to the separate Desktop and native app clients,
+not the public Agent + Buzz browser.
+
+The companion is a **development preview requiring matching current builds**.
+Older published apps may not include it. See [Desktop availability](./desktop).
+
+## Before connecting
+
+Keep Desktop open and your computer awake on the same Wi-Fi or local network
+as your device. Allow **Local Network** access when asked. Set up and sign in to
+your [Desktop AI tools](./connect-ai) first. Cloud models need internet access.
+
+Open the projects you want to share on Desktop before enabling the connection.
+
+## Pair with Desktop
+
+1. On Desktop, open **Settings > Phone connection**.
+2. Choose your local network address if asked, then select **Enable phone
+   connection**. Keep the panel open.
+3. In the companion's **Home**, choose **Find Desktop** and select your computer.
+4. Compare the six-digit code on both screens. Choose **The codes match** on your
+   device, then **Codes match, approve** on Desktop to complete pairing.
+
+Nearby pairing stays open for five minutes. Choose **Open nearby pairing** on
+Desktop to reopen it.
+
+You can also choose **Copy connection code** on Desktop. On your device, expand
+**Use a connection code instead**, paste the complete code, and
+choose **Connect to Desktop**. Supported iPhone and iPad devices can also choose
+**Scan a QR code**. Vision Pro uses nearby pairing or the copied code.
+
+## Use the same projects
+
+- **Chat:** choose **No project** for an idea, or a shared project for its saved
+  conversation. Chat does not change files or start builds.
+- **Create project:** start with words, a drawing, or a photo. Review the name,
+  Desktop folder, model, and optional image provider before choosing **Create
+  project**. The first version is saved on your computer.
+- **Build:** review the instructions, model, target platforms, and attachments.
+  Choose from Desktop's connected agents, including configured ACP agents.
+  Follow progress and answer supported questions or permissions from either
+  device. Cursor, Claude Code, and ACP appear in **Build**, not general Chat.
+- **Project:** read its [Project Book](./project-book), rename it, change its icon,
+  preview it, or open it in a Desktop editor. Book editing stays on Desktop.
+- **Studio:** browse shared projects, images, videos, and audio. Create images or
+  videos through connected Desktop providers. Play and share saved music, voice,
+  and sounds; audio generation stays on Desktop.
+
+Vision Pro's **Take a photo on Vision Pro** guides you through Capture with the
+top button, then attaching the result from Photos. Direct camera capture and QR
+scanning require supported iOS devices.
+
+## Access, models, and charges
+
+Credentials stay on Desktop. Messages and media go through it to your selected
+provider. Model access, limits, and charges depend on that provider. Project
+review can send your written idea to a model to suggest a name.
+
+Pairing uses an encrypted connection and verifies Desktop's certificate. Keep codes
+private: they grant access to shared projects, chats, builds, approvals, and media
+creation. Access expires after eight hours. **Stop phone connection** revokes it
+for all paired devices; accepted code builds continue. Use the build's **Stop**
+action to cancel one.
+
+Build permissions depend on the agent. **Allow all for this build** starts off
+and lasts only for that build; questions and separate paid-media reviews still
+need an answer. Cursor uses its CLI's automatic mode and deny rules.
+
+Static previews open as browser copies. Live server previews ask you to approve
+a temporary, unencrypted HTTP link. Use it without real passwords or private data.
+
+## If something is missing
+
+Update both apps. For source builds, restart the updated backend too. Check Local
+Network permission and Wi-Fi isolation; try the copied code if discovery fails.
+
+Shared folders are selected when the connection starts. To share an additional
+existing project, open it on Desktop, stop and enable **Phone connection** again,
+then reconnect. Projects created through the companion are shared automatically.
+
+Direct mobile account access and on-device creation are hidden in this preview.

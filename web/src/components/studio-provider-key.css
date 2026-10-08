@@ -1,0 +1,7 @@
+.studio-provider-key { display: grid; gap: 8px; }
+.studio-provider-key label { display: grid; gap: 7px; min-width: 0; font-size: 12px; font-weight: 600; }
+.studio-provider-key input { width: 100%; }
+.studio-provider-key-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-provider-key-actions button { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.studio-provider-key-actions button:disabled { opacity: .45; cursor: default; }
+.studio-provider-key-error { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; }

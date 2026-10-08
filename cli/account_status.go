@@ -6,15 +6,17 @@ import (
 	"errors"
 )
 
-// This deliberately excludes credentials and generation balances. Consumers
+// This excludes credentials and exposes generation balances as credits. Consumers
 // must check Version and Status before using identity or subscription fields.
 type accountStatusJSON struct {
-	Version            int    `json:"version"`
-	Status             string `json:"status"`
-	UID                string `json:"uid,omitempty"`
-	Email              string `json:"email,omitempty"`
-	SubscriptionStatus string `json:"subscriptionStatus,omitempty"`
-	Code               string `json:"code,omitempty"`
+	RemainingCredits   *float64 `json:"remainingCredits,omitempty"`
+	AllowanceCredits   *float64 `json:"allowanceCredits,omitempty"`
+	Version            int      `json:"version"`
+	Status             string   `json:"status"`
+	UID                string   `json:"uid,omitempty"`
+	Email              string   `json:"email,omitempty"`
+	SubscriptionStatus string   `json:"subscriptionStatus,omitempty"`
+	Code               string   `json:"code,omitempty"`
 }
 
 func (c *accountClient) accountStatus(ctx context.Context, forceRefresh bool) accountStatusJSON {
@@ -34,6 +36,10 @@ func (c *accountClient) accountStatus(ctx context.Context, forceRefresh bool) ac
 	result.Status, result.Code = "signed_in", ""
 	result.UID, result.Email = credentials.UID, credentials.Email
 	result.SubscriptionStatus = summary.SubscriptionStatus
+	if !notReady {
+		result.RemainingCredits = creditsFromUSD(summary.RemainingUSD)
+		result.AllowanceCredits = creditsFromUSD(summary.AllowanceUSD)
+	}
 	if notReady {
 		result.SubscriptionStatus, result.Code = "unknown", "account_not_ready"
 	}

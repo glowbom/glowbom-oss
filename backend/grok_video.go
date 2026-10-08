@@ -2,20 +2,31 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	neturl "net/url"
 	"strings"
+	"time"
 )
 
 const (
 	xAIVideoGenerationURL   = "https://api.x.ai/v1/videos/generations"
 	xAIVideoGenerationModel = "grok-imagine-video"
+	xAIVideoRequestTimeout  = 60 * time.Second
+	xAIVideoResponseLimit   = 1 << 20
 )
 
-func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationResponse, error) {
+func startGrokImagineVideoGeneration(req VeoGenerationRequest, contexts ...context.Context) (*VeoGenerationResponse, error) {
+	if req.ModelID != "" && req.ExtensionSource == nil {
+		options, err := normalizeStudioVideoOptions(studioVideoOptions{SourceID: "xai-api", ModelID: req.ModelID, DurationSeconds: req.DurationSeconds, Resolution: req.Resolution, AspectRatio: req.AspectRatio})
+		if err != nil {
+			return nil, err
+		}
+		req.DurationSeconds, req.Resolution, req.AspectRatio = options.DurationSeconds, options.Resolution, options.AspectRatio
+	}
 	if strings.TrimSpace(req.XaiKey) == "" {
 		return nil, fmt.Errorf("xAI API key required")
 	}
@@ -25,6 +36,9 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 		"prompt": req.Prompt,
 	}
 
+	if req.ModelID != "" {
+		payload["model"] = req.ModelID
+	}
 	hasMediaInput := false
 	hasVideoInput := false
 	if len(req.Images) > 0 {
@@ -40,7 +54,7 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 			"url": strings.TrimSpace(req.ExtensionSource.URI),
 		}
 	}
-	if !hasMediaInput {
+	if !hasMediaInput && req.ModelID == "" {
 		return nil, fmt.Errorf("at least one image or video input is required")
 	}
 	if hasVideoInput && (req.DurationSeconds != 0 || strings.TrimSpace(req.Resolution) != "" || strings.TrimSpace(req.AspectRatio) != "") {
@@ -52,6 +66,9 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 	if !hasVideoInput {
 		payload["duration"] = normalizeXAIVideoDurationSeconds(req.DurationSeconds)
 		payload["resolution"] = normalizeXAIVideoResolution(req.Resolution)
+		if req.ModelID != "" {
+			payload["resolution"] = req.Resolution
+		}
 		if aspectRatio := normalizeVideoAspectRatio(req.AspectRatio); aspectRatio != "" {
 			payload["aspect_ratio"] = aspectRatio
 		}
@@ -71,13 +88,17 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 		payload["aspect_ratio"],
 	)
 
-	respBody, statusCode, err := xaiStartVideoGenerationRequest(payload, req.XaiKey)
+	respBody, statusCode, err := xaiStartVideoGenerationRequest(payload, req.XaiKey, contexts...)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("[GROK VIDEO] Start response status=%d body=%s\n", statusCode, truncateBodyForLog(respBody, 400))
+	fmt.Printf("[GROK VIDEO] Start response status=%d\n", statusCode)
 	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		// Compatibility fallback for legacy payload shape.
+		// Only a rejected payload can use the legacy format. Retrying other
+		// failures could submit another billable generation.
+		if req.ModelID != "" || (statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity) {
+			return nil, &xAIAPIError{Status: statusCode, Body: string(respBody)}
+		}
 		legacyPayload := map[string]interface{}{
 			"model":      payload["model"],
 			"prompt":     payload["prompt"],
@@ -98,12 +119,12 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 			}
 		}
 
-		fmt.Printf("[GROK VIDEO] Start legacy fallback request status=%d trigger_body=%s\n", statusCode, truncateBodyForLog(respBody, 400))
-		legacyRespBody, legacyStatusCode, legacyErr := xaiStartVideoGenerationRequest(legacyPayload, req.XaiKey)
+		fmt.Printf("[GROK VIDEO] Start legacy fallback request status=%d\n", statusCode)
+		legacyRespBody, legacyStatusCode, legacyErr := xaiStartVideoGenerationRequest(legacyPayload, req.XaiKey, contexts...)
 		if legacyErr != nil {
 			return nil, legacyErr
 		}
-		fmt.Printf("[GROK VIDEO] Start legacy fallback response status=%d body=%s\n", legacyStatusCode, truncateBodyForLog(legacyRespBody, 400))
+		fmt.Printf("[GROK VIDEO] Start legacy fallback response status=%d\n", legacyStatusCode)
 		if legacyStatusCode < http.StatusOK || legacyStatusCode >= http.StatusMultipleChoices {
 			return nil, fmt.Errorf("xAI video API error (%d): %s | fallback (%d): %s",
 				statusCode,
@@ -153,13 +174,15 @@ func startGrokImagineVideoGeneration(req VeoGenerationRequest) (*VeoGenerationRe
 	}, nil
 }
 
-func xaiStartVideoGenerationRequest(payload map[string]interface{}, apiKey string) ([]byte, int, error) {
+func xaiStartVideoGenerationRequest(payload map[string]interface{}, apiKey string, contexts ...context.Context) ([]byte, int, error) {
+	ctx, cancel := context.WithTimeout(imageRequestContext(contexts), xAIVideoRequestTimeout)
+	defer cancel()
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to marshal xAI video request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", xAIVideoGenerationURL, bytes.NewReader(bodyBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", xAIVideoGenerationURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create xAI video request: %w", err)
 	}
@@ -173,23 +196,31 @@ func xaiStartVideoGenerationRequest(payload map[string]interface{}, apiKey strin
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, xAIVideoResponseLimit+1))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read xAI video response: %w", err)
+	}
+	if len(respBody) > xAIVideoResponseLimit {
+		return nil, resp.StatusCode, fmt.Errorf("xAI video response is too large")
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return respBody, resp.StatusCode, &xAIAPIError{Status: resp.StatusCode, Body: string(respBody)}
 	}
 	return respBody, resp.StatusCode, nil
 }
 
-func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse, error) {
+func pollGrokImagineVideoOperation(operationID, apiKey string, contexts ...context.Context) (*VeoPollResponse, error) {
 	if strings.TrimSpace(operationID) == "" {
 		return nil, fmt.Errorf("operation id is required")
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, fmt.Errorf("xAI API key required")
 	}
+	ctx, cancel := context.WithTimeout(imageRequestContext(contexts), xAIVideoRequestTimeout)
+	defer cancel()
 
 	statusURL := fmt.Sprintf("https://api.x.ai/v1/videos/%s", neturl.PathEscape(strings.TrimSpace(operationID)))
-	httpReq, err := http.NewRequest("GET", statusURL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create xAI video poll request: %w", err)
 	}
@@ -202,15 +233,18 @@ func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, xAIVideoResponseLimit+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read xAI video poll response: %w", err)
 	}
-	fmt.Printf("[GROK VIDEO] Poll response operation=%s status_code=%d body=%s\n",
-		strings.TrimSpace(operationID), resp.StatusCode, truncateBodyForLog(respBody, 500))
+	if len(respBody) > xAIVideoResponseLimit {
+		return nil, fmt.Errorf("xAI video poll response is too large")
+	}
+	fmt.Printf("[GROK VIDEO] Poll response operation=%s status_code=%d\n",
+		strings.TrimSpace(operationID), resp.StatusCode)
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("xAI video poll error (%d): %s", resp.StatusCode, string(respBody))
+		return nil, &xAIAPIError{Status: resp.StatusCode, Body: string(respBody)}
 	}
 
 	var raw map[string]interface{}
@@ -232,10 +266,11 @@ func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse
 	}
 
 	videoURL := xaiExtractVideoURL(raw)
+	durationSeconds := xaiVideoDuration(raw)
 	aspectRatio := normalizeVideoAspectRatio(xaiExtractAspectRatio(raw))
 	errorMsg := xaiExtractErrorMessage(raw)
-	fmt.Printf("[GROK VIDEO] Poll parsed operation=%s raw_status=%q normalized_status=%s has_video_url=%t error=%q\n",
-		strings.TrimSpace(operationID), rawStatus, status, strings.TrimSpace(videoURL) != "", errorMsg)
+	fmt.Printf("[GROK VIDEO] Poll parsed operation=%s raw_status=%q normalized_status=%s has_video_url=%t has_error=%t\n",
+		strings.TrimSpace(operationID), rawStatus, status, strings.TrimSpace(videoURL) != "", errorMsg != "")
 
 	switch status {
 	case "completed", "succeeded", "success", "done":
@@ -250,9 +285,10 @@ func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse
 			}, nil
 		}
 		return &VeoPollResponse{
-			Done:     true,
-			Status:   "completed",
-			VideoURL: videoURL,
+			Done:            true,
+			Status:          "completed",
+			VideoURL:        videoURL,
+			DurationSeconds: durationSeconds,
 			VideoAsset: &VeoVideoAsset{
 				URI:         videoURL,
 				AspectRatio: aspectRatio,
@@ -271,9 +307,10 @@ func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse
 		// Some xAI poll responses omit status once video.url is available.
 		if strings.TrimSpace(videoURL) != "" {
 			return &VeoPollResponse{
-				Done:     true,
-				Status:   "completed",
-				VideoURL: videoURL,
+				Done:            true,
+				Status:          "completed",
+				VideoURL:        videoURL,
+				DurationSeconds: durationSeconds,
 				VideoAsset: &VeoVideoAsset{
 					URI:         videoURL,
 					AspectRatio: aspectRatio,
@@ -287,9 +324,10 @@ func pollGrokImagineVideoOperation(operationID, apiKey string) (*VeoPollResponse
 	default:
 		if strings.TrimSpace(videoURL) != "" {
 			return &VeoPollResponse{
-				Done:     true,
-				Status:   "completed",
-				VideoURL: videoURL,
+				Done:            true,
+				Status:          "completed",
+				VideoURL:        videoURL,
+				DurationSeconds: durationSeconds,
 				VideoAsset: &VeoVideoAsset{
 					URI:         videoURL,
 					AspectRatio: aspectRatio,
@@ -537,10 +575,18 @@ func xaiAsSlice(v interface{}) []interface{} {
 	return items
 }
 
-func truncateBodyForLog(body []byte, maxLen int) string {
-	trimmed := strings.TrimSpace(string(body))
-	if maxLen <= 0 || len(trimmed) <= maxLen {
-		return trimmed
+func xaiVideoDuration(raw map[string]interface{}) float64 {
+	if video := xaiAsMap(raw["video"]); video != nil {
+		if duration, ok := video["duration"].(float64); ok && duration > 0 {
+			return duration
+		}
 	}
-	return trimmed[:maxLen] + "..."
+	for _, key := range []string{"data", "result", "response"} {
+		if child := xaiAsMap(raw[key]); child != nil {
+			if duration := xaiVideoDuration(child); duration > 0 {
+				return duration
+			}
+		}
+	}
+	return 0
 }

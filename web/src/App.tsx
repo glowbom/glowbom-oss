@@ -1,8 +1,12 @@
 import { AppearancePicker, type AppearanceProps } from './components/AppearancePicker';
+import { MediaApprovalEditor } from './components/MediaApprovalEditor';
+import { BuildPermissionControl } from './components/BuildPermissionControl';
+import { useBuildPermissionChoice } from './hooks/useBuildPermissionChoice';
+import { agentPermissionResponses, permissionResponseLabels, allBuildPermissionScope } from './lib/agent-permissions';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BuzzMembersPanel } from './components/BuzzMembersPanel';
 import { StackOpenMenu } from './components/StackOpenMenu';
 import { withServerAuthHeaders } from './lib/server-auth';
+import { prepareBuildCompletionSound } from './lib/build-completion-sound';
 import { ProjectPreview } from './components/ProjectPreview';
 import { previewRequest, type PreviewTarget } from './lib/preview';
 import {
@@ -15,18 +19,31 @@ import {
 } from './lib/model-catalog';
 import { lineLooksLikeMarkdown, parseConsoleHeading, parseConsoleMarkdown } from './lib/console-render';
 import { ApiError, openCodeApi, toErrorMessage } from './lib/api';
+import { imageSettingsChangedEvent, imageSourceAccessLabel, imageSourceName, notifyImageSettingsChanged, readIconApiKeys, rememberImageSessionKey } from './lib/project-icon';
+import { buildImageSettings, canonicalImageSource, readPrototypeImageSource, rememberPrototypeImageSource, type PrototypeImageSource } from './lib/prototype-images';
+import { PrototypeImageSettings } from './components/PrototypeImageSettings';
+import { canonicalProjectPath, isChatOnlyModel, chatJSON, type ChatModel } from './lib/chat';
+import { GlowbomLiveSettings } from './components/GlowbomLiveSettings';
+import { CodexSettings } from './components/CodexSettings';
+import { ACPSettings } from './components/ACPSettings';
+import { CodexReasoningPicker } from './components/CodexReasoningPicker';
+import { selectedCodexReasoningEffort } from './lib/codex-reasoning';
+import { agentModels, agentRequestModel, type BuildAgent } from './lib/agent-model-selection';
 import {
   OPENCODE_DEFAULT_MODEL_VALUE,
   OPENCODE_RECOMMENDED_MODEL_VALUE,
   findChatGPTRecommendedModel,
   resolveOpenCodeModelValue,
 } from './lib/opencode-model-recommendation';
-import { useRefineRun } from './hooks/useRefineRun';
+import { type RefineRun } from './hooks/useRefineRun';
+import { readVoiceSettings } from './lib/speech';
+import { useProjectChoices } from './hooks/useProjectChoices';
 import type {
   AuthProviderID,
   ImageProviderID,
   ImageProviderKeyState,
   OpenCodeAvailableProvider,
+  ProjectIconSource,
   OpenAIAuthMode,
   OpenAIModelsResponseModel,
   OpenCodeIDE,
@@ -49,7 +66,7 @@ type CredentialMode = 'auth' | 'api-key' | 'opencode-config';
 const MAX_INSTRUCTION_ATTACHMENT_BYTES = 40 * 1024 * 1024;
 const PROJECT_HISTORY_STORAGE_KEY = 'glowbom_oss_project_history';
 const LEGACY_PROJECT_HISTORY_STORAGE_KEY = 'glowby_oss_project_history';
-const DEFAULT_BUILD_INSTRUCTIONS = 'Make this project production ready. Follow AGENTS.md when present.';
+const DEFAULT_BUILD_INSTRUCTIONS = 'Make this project production ready. Follow AGENTS.md when present. Read .glowbom/chat.json and .glowbom/prototypes/ when present for the conversation and prototype history.';
 
 const RUN_STATUS_LABEL: Record<string, string> = {
   idle: 'Ready',
@@ -117,25 +134,9 @@ const IMAGE_PROVIDER_KEYS_STORAGE_KEY = 'glowbom_oss_image_provider_keys';
 
 function loadImageProviderKeys(): ImageProviderKeyState {
   try {
-    const raw = localStorage.getItem(IMAGE_PROVIDER_KEYS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return { ...DEFAULT_IMAGE_PROVIDER_KEYS, ...parsed };
-    }
-
-    const providerKeys = loadProviderKeys();
-    const migratedKeys = {
-      openaiImageKey: providerKeys.openaiKey,
-      geminiImageKey: providerKeys.geminiKey,
-      xaiImageKey: providerKeys.xaiKey,
-    };
-    if (Object.values(migratedKeys).some((value) => value.trim())) {
-      saveImageProviderKeys(migratedKeys);
-    }
-    return migratedKeys;
-  } catch {
-    return { ...DEFAULT_IMAGE_PROVIDER_KEYS };
-  }
+    const keys = readIconApiKeys(localStorage);
+    return { openaiImageKey: keys['openai-api'] || '', geminiImageKey: keys['gemini-api'] || '', xaiImageKey: keys['xai-api'] || '' };
+  } catch { return { ...DEFAULT_IMAGE_PROVIDER_KEYS }; }
 }
 
 function saveImageProviderKeys(keys: ImageProviderKeyState): void {
@@ -146,11 +147,9 @@ function saveImageProviderKeys(keys: ImageProviderKeyState): void {
   }
 }
 
-const IMAGE_SOURCE_STORAGE_KEY = 'glowbom_oss_image_source';
-const LEGACY_IMAGE_SOURCE_STORAGE_KEY = 'glowby_oss_image_source';
-const OPENAI_IMAGE_SOURCE = 'Glowbom Images (gpt-image-2)';
-const GEMINI_IMAGE_SOURCE = 'Glowbom Images (Nano Banana 2)';
-const XAI_IMAGE_SOURCE = 'Glowbom Images (Grok Imagine Image Quality)';
+const OPENAI_IMAGE_SOURCE = 'openai-api';
+const GEMINI_IMAGE_SOURCE = 'gemini-api';
+const XAI_IMAGE_SOURCE = 'xai-api';
 
 const IMAGE_PROVIDERS: Array<{
   id: ImageProviderID;
@@ -185,22 +184,14 @@ const IMAGE_PROVIDERS: Array<{
     keyPlaceholder: 'xAI key',
   },
 ];
-const DEFAULT_IMAGE_PROVIDER = IMAGE_PROVIDERS[0]!;
 
 function loadImageSource(): string {
-  try {
-    return readMigratedLocalStorage(IMAGE_SOURCE_STORAGE_KEY, LEGACY_IMAGE_SOURCE_STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
+  const source = readPrototypeImageSource();
+  return source === 'picsum' ? OPENAI_IMAGE_SOURCE : source;
 }
 
 function saveImageSource(value: string): void {
-  try {
-    localStorage.setItem(IMAGE_SOURCE_STORAGE_KEY, value);
-  } catch {
-    // ignore storage errors
-  }
+  rememberPrototypeImageSource(value as PrototypeImageSource);
 }
 
 const CREDENTIAL_MODE_STORAGE_KEY = 'glowbom_oss_credential_mode';
@@ -263,34 +254,8 @@ function saveSelectedTargets(ids: string[]): void {
   }
 }
 
-function normalizeImageSource(source: string): string {
-  if (
-    source === 'Glowbom Images' ||
-    source === 'Glowby Images' ||
-    source === 'Glowby Images (gpt-image-1)' ||
-    source === 'Glowby Images (gpt-image-1.5)'
-  ) {
-    return OPENAI_IMAGE_SOURCE;
-  }
-  if (
-    source === 'Glowby Images (Grok Imagine Image Pro)' ||
-    source === 'Grok Imagine Image Pro' ||
-    source === 'Glowby Images (Grok 2 Image Gen)' ||
-    source === 'Grok 2 Image Gen'
-  ) {
-    return XAI_IMAGE_SOURCE;
-  }
-  if (source.startsWith('Glowby Images')) {
-    return source.replace(/^Glowby Images/, 'Glowbom Images');
-  }
-  return source;
-}
-
 function validateImageSource(source: string): string {
-  const normalizedSource = normalizeImageSource(source);
-  return IMAGE_PROVIDERS.some((provider) => provider.source === normalizedSource)
-    ? normalizedSource
-    : OPENAI_IMAGE_SOURCE;
+  return canonicalImageSource(source) || OPENAI_IMAGE_SOURCE;
 }
 
 function suggestBundleID(name: string): string {
@@ -555,7 +520,7 @@ function normalizeProjectHistory(raw: unknown): ProjectHistoryEntry[] {
       continue;
     }
 
-    const path = typeof item.path === 'string' ? item.path.trim() : '';
+    const path = typeof item.path === 'string' ? canonicalProjectPath(item.path) : '';
     if (!path || seen.has(path)) {
       continue;
     }
@@ -578,7 +543,8 @@ function normalizeProjectHistory(raw: unknown): ProjectHistoryEntry[] {
 }
 
 function upsertProjectHistory(previous: ProjectHistoryEntry[], entry: ProjectHistoryEntry): ProjectHistoryEntry[] {
-  return normalizeProjectHistory([entry, ...previous.filter((item) => item.path !== entry.path)]);
+  const path = canonicalProjectPath(entry.path);
+  return normalizeProjectHistory([{ ...entry, path }, ...previous.filter((item) => canonicalProjectPath(item.path) !== path)]);
 }
 
 function inferProviderFromCustomModel(customModel: string): ProviderID | null {
@@ -621,7 +587,38 @@ function isUnsupportedNativePickerError(error: unknown): boolean {
   return toErrorMessage(error, '').toLowerCase().includes('only available on');
 }
 
-export default function App({ onOpenAccount, ...appearance }: AppearanceProps & { onOpenAccount: () => void }) {
+export default function App({ runs, ...appearance }: AppearanceProps & { runs: Record<BuildAgent, RefineRun> }) {
+  const [agentDriver, setAgentDriver] = useState<BuildAgent>('opencode');
+  const refine = runs[agentDriver];
+  const anyRunning = Object.values(runs).some(run => run.isRunning);
+  const [showLive, setShowLive] = useState(false);
+  const [connectedModels, setConnectedModels] = useState<ChatModel[]>([]);
+  const [agentModel, setAgentModel] = useState('');
+  const [agentModelError, setAgentModelError] = useState('');
+  const [codexReasoning, setCodexReasoning] = useState('');
+  const availableAgentModels = agentModels(connectedModels, agentDriver);
+  const selectedAgentModel = availableAgentModels.find(model => model.id === agentModel);
+  useEffect(() => {
+    let request: AbortController | null = null;
+    const refresh = () => {
+      if (document.hidden || request) return;
+      const controller = new AbortController(); request = controller;
+      void chatJSON<{ models: ChatModel[] }>('models', undefined, controller.signal).then(result => {
+        if (!controller.signal.aborted) { setConnectedModels(result.models); setAgentModelError(''); }
+      }).catch(error => {
+        if (!controller.signal.aborted) setAgentModelError(toErrorMessage(error, 'Could not load connected agent models.'));
+      }).finally(() => { if (request === controller) request = null; });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    window.addEventListener('glowbom-acp-changed', refresh);
+    return () => { request?.abort(); window.removeEventListener('focus', refresh); window.removeEventListener('glowbom-acp-changed', refresh); };
+  }, [agentDriver]);
+  useEffect(() => {
+    if (!anyRunning && !availableAgentModels.some(model => model.id === agentModel)) {
+      setAgentModel(availableAgentModels.find(model => model.isDefault)?.id || availableAgentModels[0]?.id || '');
+    }
+  }, [connectedModels, agentDriver, agentModel, anyRunning]);
   const topbarLogoSrc = `${import.meta.env.BASE_URL}logo-svg.svg`;
   const [health, setHealth] = useState<OpenCodeHealthResponse | null>(null);
   const [authStatus, setAuthStatus] = useState<OpenCodeAuthStatus | null>(null);
@@ -675,17 +672,28 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const [providerKeys, setProviderKeys] = useState<ProviderKeyState>(loadProviderKeys);
   const [imageProviderKeys, setImageProviderKeys] = useState<ImageProviderKeyState>(loadImageProviderKeys);
   const [imageSource, setImageSourceRaw] = useState(() => validateImageSource(loadImageSource()));
-  const setImageSource = (value: string | ((prev: string) => string)) => {
-    setImageSourceRaw((prev) => {
-      const next = normalizeImageSource(typeof value === 'function' ? value(prev) : value);
-      saveImageSource(next);
-      return next;
-    });
+  const [imageSources, setImageSources] = useState<ProjectIconSource[]>([]);
+  const setImageSource = (value: string) => {
+    const next = validateImageSource(value);
+    saveImageSource(next);
+    setImageSourceRaw(next);
   };
-  const [agentDriver, setAgentDriver] = useState<'opencode' | 'cursor'>('opencode');
+  useEffect(() => {
+    const refresh = () => {
+      setImageSourceRaw(loadImageSource());
+      setImageProviderKeys(loadImageProviderKeys());
+    };
+    window.addEventListener(imageSettingsChangedEvent, refresh);
+    return () => window.removeEventListener(imageSettingsChangedEvent, refresh);
+  }, []);
   const [cursorModel, setCursorModel] = useState('');
   const setupCheckRef = useRef(0);
   const isCursor = agentDriver === 'cursor';
+  const isClaude = agentDriver === 'claude-code';
+  const isCodex = agentDriver === 'codex';
+  const isACP = agentDriver === 'acp';
+  const isCLI = agentDriver !== 'opencode';
+  const [claudeModel, setClaudeModel] = useState('default');
   const [credentialMode, setCredentialModeRaw] = useState<CredentialMode>(loadCredentialMode);
   const setCredentialMode = (mode: CredentialMode) => {
     setCredentialModeRaw(mode);
@@ -710,6 +718,9 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const [customModel, setCustomModel] = useState('');
   const [instructions, setInstructions] = useState(DEFAULT_BUILD_INSTRUCTIONS);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isStartingBuild, setIsStartingBuild] = useState(false);
+  const startingBuildRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const [simpleAnswerText, setSimpleAnswerText] = useState('');
   const [simpleCustomAnswer, setSimpleCustomAnswer] = useState('');
@@ -722,10 +733,10 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
+  const projectPicker = useProjectChoices(projectHistory, isProjectPickerOpen);
   const [isContextOpen, setIsContextOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const refine = useRefineRun();
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const attachmentBusy = useRef(false);
   const previousRefineStatusRef = useRef(refine.status);
@@ -736,7 +747,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const modelGroups = useMemo(() => modelCatalogGroups(dynamicOpenAIModels), [dynamicOpenAIModels]);
   const isAuthMode = credentialMode === 'auth';
   const isApiKeyMode = credentialMode === 'api-key';
-  const isOpenCodeConfigMode = !isCursor && credentialMode === 'opencode-config';
+  const isOpenCodeConfigMode = !isCLI && credentialMode === 'opencode-config';
   const effectiveOpenAIAuthMode: OpenAIAuthMode = isAuthMode
     ? 'codex-jwt'
     : isOpenCodeConfigMode
@@ -745,11 +756,8 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const isChatGPTConnected =
     authStatus?.openaiCredentialType === 'oauth' || authStatus?.cachedGlowbomAuthMode === 'codex-jwt';
   const authProviderConnected = authProvider === 'chatgpt' && isChatGPTConnected;
-  const selectedImageProvider =
-    IMAGE_PROVIDERS.find((provider) => provider.source === imageSource) || DEFAULT_IMAGE_PROVIDER;
-  const selectedImageProviderHasKey = Boolean(
-    imageProviderKeys[selectedImageProvider.keyField].trim(),
-  );
+  const selectedImageConnection = imageSources.find(source => source.id === imageSource);
+  const selectedImageProviderHasKey = Boolean(selectedImageConnection?.available || readIconApiKeys()[imageSource]);
 
   const visibleModelGroups = useMemo(() => {
     if (isAuthMode) {
@@ -797,6 +805,19 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   const androidStudioAction = useMemo(() => ideActionFor(ideActions, 'android-studio'), [ideActions]);
   const vscodeAction = useMemo(() => ideActionFor(ideActions, 'vscode'), [ideActions]);
   const selectedProjectPath = projectPath.trim();
+  const buildPermission = useBuildPermissionChoice(JSON.stringify([selectedProjectPath, agentDriver, cursorModel, claudeModel, agentModel, codexReasoning, selectedOpenCodeModel, selectedModelOption, customModel]));
+  const effectiveOpenCodeModel = selectedOpenCodeModel;
+  const buildScopeRef = useRef({ path: selectedProjectPath, driver: agentDriver, revision: 0, running: refine.isRunning });
+  if (buildScopeRef.current.path !== selectedProjectPath || buildScopeRef.current.driver !== agentDriver || buildScopeRef.current.running !== refine.isRunning) {
+    buildScopeRef.current.path = selectedProjectPath;
+    buildScopeRef.current.driver = agentDriver;
+    buildScopeRef.current.revision++;
+  }
+  buildScopeRef.current.running = refine.isRunning;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const buildTargets = useMemo(() => [
     ...BUILD_TARGETS,
     ...(previewTargets.path === selectedProjectPath ? previewTargets.targets : [])
@@ -819,31 +840,28 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
     [authStatus?.openaiCredentialType, openCodeConfigProviders],
   );
   const resolvedOpenCodeModelValue = useMemo(
-    () => resolveOpenCodeModelValue(selectedOpenCodeModel, recommendedOpenCodeModel),
-    [recommendedOpenCodeModel, selectedOpenCodeModel],
+    () => resolveOpenCodeModelValue(effectiveOpenCodeModel, recommendedOpenCodeModel),
+    [recommendedOpenCodeModel, effectiveOpenCodeModel],
   );
   const selectedOpenCodeModelLabel = useMemo(() => {
-    if (selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
+    if (effectiveOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE) {
       return recommendedOpenCodeModel?.fullLabel || 'OpenCode default';
     }
-    if (selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
+    if (!effectiveOpenCodeModel || effectiveOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE) {
       return 'OpenCode default';
     }
 
     for (const provider of openCodeConfigProviders) {
-      const matchingModel = provider.models.find((model) => `${provider.id}/${model.id}` === selectedOpenCodeModel);
+      const matchingModel = provider.models.find((model) => `${provider.id}/${model.id}` === effectiveOpenCodeModel);
       if (matchingModel) {
         return `${provider.displayName || provider.id}: ${matchingModel.displayName || matchingModel.id}`;
       }
     }
 
-    return selectedOpenCodeModel;
-  }, [openCodeConfigProviders, recommendedOpenCodeModel, selectedOpenCodeModel]);
-  const recommendedOpenCodeModelOptionLabel = recommendedOpenCodeModel
-    ? `Recommended: ${recommendedOpenCodeModel.modelLabel} via ChatGPT`
-    : 'OpenCode default';
+    return effectiveOpenCodeModel;
+  }, [openCodeConfigProviders, recommendedOpenCodeModel, effectiveOpenCodeModel]);
   const systemNeedsAttention = Boolean(
-    healthError || health?.healthy === false || (!isCursor && (authError || authStatus?.serverRunning === false)),
+    healthError || health?.healthy === false || (!isCLI && (authError || authStatus?.serverRunning === false)),
   );
   const systemStatusSummary = useMemo(() => {
     if (healthError) {
@@ -855,15 +873,17 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
     if (health?.healthy === false) {
       return 'Agent needs setup';
     }
-    if (!isCursor && authError) {
+    if (!isCLI && authError) {
       return 'Auth check failed';
     }
-    if (!isCursor && authStatus?.serverRunning === false) {
+    if (!isCLI && authStatus?.serverRunning === false) {
       return 'Agent server stopped';
     }
     return 'Local backend ready';
-  }, [authError, authStatus, health, healthError, isCursor]);
+  }, [authError, authStatus, health, healthError, isCLI]);
   const agentStatusSummary = useMemo(() => {
+    if (isCodex || isACP) return selectedAgentModel?.name || 'Choose a connected agent model';
+    if (isClaude) return `Claude Code: ${claudeModel}`;
     if (isCursor) return cursorModel.trim() ? `Cursor: ${cursorModel.trim()}` : 'Cursor default';
     if (isOpenCodeConfigMode) {
       return selectedOpenCodeModelLabel;
@@ -884,17 +904,22 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
     return 'Choose a model';
   }, [
     customModel,
+    isCodex,
+    isACP,
+    selectedAgentModel,
     isCursor,
     cursorModel,
+    isClaude,
+    claudeModel,
     isAuthMode,
     isChatGPTConnected,
     isOpenCodeConfigMode,
     selectedOpenCodeModelLabel,
     resolvedSelection,
   ]);
-  const imageProviderStatusSummary = selectedImageProviderHasKey
-    ? selectedImageProvider.label
-    : `${selectedImageProvider.label}: add key`;
+  const imageProviderStatusSummary = selectedImageConnection
+    ? `${imageSourceName(selectedImageConnection)} · ${imageSourceAccessLabel(selectedImageConnection, readIconApiKeys())}`
+    : 'Review image source';
   const projectButtonLabel = activeProject?.name || (selectedProjectPath ? compactPathLabel(selectedProjectPath) : 'Project');
 
 
@@ -982,7 +1007,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       if (check !== setupCheckRef.current) return;
       setHealthError(toErrorMessage(error, 'Failed to check agent availability.'));
     }
-    if (!isCursor) {
+    if (!isCLI) {
       try {
         const authResult = await openCodeApi.getAuthStatus();
         if (check !== setupCheckRef.current) return;
@@ -1024,10 +1049,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   useEffect(() => {
     try {
       const raw = readMigratedLocalStorage(PROJECT_HISTORY_STORAGE_KEY, LEGACY_PROJECT_HISTORY_STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-      const history = normalizeProjectHistory(JSON.parse(raw));
+      const history = normalizeProjectHistory(JSON.parse(raw || '[]'));
       const lastProject = history[0];
       setProjectHistory(history);
       if (lastProject?.path) {
@@ -1220,6 +1242,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       return;
     }
 
+    if (openCodeConfigProviders.length === 0) return;
     if (
       selectedOpenCodeModel === OPENCODE_RECOMMENDED_MODEL_VALUE ||
       selectedOpenCodeModel === OPENCODE_DEFAULT_MODEL_VALUE
@@ -1238,6 +1261,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
 
   useEffect(() => {
     if (!activeProject) return;
+    let cancelled = false;
     const name = activeProject.name || '';
     setSettingsBundleID(activeProject.bundleID || suggestBundleID(name));
     setSettingsDisplayName(activeProject.displayName || name);
@@ -1253,13 +1277,14 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
     const trimmedPath = projectPath.trim();
     if (trimmedPath) {
       openCodeApi.getProjectIcon(trimmedPath).then((result) => {
-        setIconPreview(result.exists && result.image ? result.image : null);
+        if (!cancelled) setIconPreview(result.exists && result.image ? result.image : null);
       }).catch(() => {
-        setIconPreview(null);
+        if (!cancelled) setIconPreview(null);
       });
     } else {
       setIconPreview(null);
     }
+    return () => { cancelled = true; };
   }, [activeProject, projectPath]);
 
   const toggleTarget = useCallback((targetId: string) => {
@@ -1316,11 +1341,12 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   };
 
   const updateImageProviderKey = (field: keyof ImageProviderKeyState, value: string) => {
-    setImageProviderKeys((previous) => {
-      const next = { ...previous, [field]: value };
-      saveImageProviderKeys(next);
-      return next;
-    });
+    const next = { ...imageProviderKeys, [field]: value };
+    saveImageProviderKeys(next);
+    setImageProviderKeys(next);
+    const source = IMAGE_PROVIDERS.find(provider => provider.keyField === field)?.source;
+    if (source) rememberImageSessionKey(source, '');
+    else notifyImageSettingsChanged();
   };
 
   const toggleProjectPicker = () => {
@@ -1576,7 +1602,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       setIsProjectPickerOpen(false);
       void refreshProjectHistory(trimmedPath, { silent: true });
       await refreshIDEStatus(trimmedPath);
-      return true;
+      return envelope.project;
     } catch (error) {
       setProjectError(toErrorMessage(error, 'Failed to load project.'));
       return false;
@@ -1658,10 +1684,6 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       setIconError('Enter an icon prompt.');
       return;
     }
-    if (!selectedImageProviderHasKey) {
-      setIconError(`Add your ${selectedImageProvider.keyLabel} in Settings before generating an icon.`);
-      return;
-    }
 
     setIsGeneratingIcon(true);
     setIconInfo(null);
@@ -1672,16 +1694,8 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       const result = await openCodeApi.generateIcon({
         path: trimmedPath,
         prompt: trimmedPrompt,
-        imageSource,
-        openaiKey: selectedImageProvider.id === 'openai'
-          ? imageProviderKeys.openaiImageKey.trim() || undefined
-          : undefined,
-        geminiKey: selectedImageProvider.id === 'gemini'
-          ? imageProviderKeys.geminiImageKey.trim() || undefined
-          : undefined,
-        xaiKey: selectedImageProvider.id === 'xai'
-          ? imageProviderKeys.xaiImageKey.trim() || undefined
-          : undefined,
+        sourceId: imageSource,
+        apiKey: readIconApiKeys()[imageSource] || undefined,
         referenceImage: iconReferenceImage || undefined,
       });
       if (result.success) {
@@ -1828,162 +1842,191 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
   };
 
   const startRefine = async () => {
-    if (attachmentBusy.current || refine.isRunning) return;
+    const requestPermissionMode = buildPermission.permissionMode;
+    if (attachmentBusy.current || refine.isRunning || startingBuildRef.current) return;
+    prepareBuildCompletionSound();
+    startingBuildRef.current = true;
+    setIsStartingBuild(true);
     setFormError(null);
+    const runPath = selectedProjectPath;
+    const runRevision = buildScopeRef.current.revision;
+    const isCurrentBuild = () => mountedRef.current
+      && buildScopeRef.current.path === runPath
+      && buildScopeRef.current.revision === runRevision
+      && !buildScopeRef.current.running;
 
-    let hasLoadedProject = Boolean(activeProject);
-
-    if (!hasLoadedProject) {
-      if (!selectedProjectPath) {
-        setFormError('Choose a local project folder first.');
-        return;
-      }
-
-      const projectLoaded = await loadProject();
-      if (!projectLoaded) {
-        return;
-      }
-      hasLoadedProject = true;
-    }
-
-    if (!hasLoadedProject) {
-      setFormError('Choose a valid Glowbom project folder before building.');
-      return;
-    }
-
-    const finalInstructions = instructions.trim() || DEFAULT_BUILD_INSTRUCTIONS;
-
-    let requestedBuildTargets: string[];
     try {
-      const currentTargets = await previewRequest(selectedProjectPath, 'inspect', { requireStackInstructions: true });
-      const availableIDs = new Set([...ALL_TARGET_IDS, ...currentTargets.map((target) => target.target)]);
-      requestedBuildTargets = selectedTargets.filter((id) => availableIDs.has(id));
-      if (!requestedBuildTargets.length) {
-        setFormError('Choose at least one available build target under Project.');
-        setIsProjectPickerOpen(true);
+      let hasLoadedProject = Boolean(activeProject);
+
+      if (!hasLoadedProject) {
+        if (!selectedProjectPath) {
+          setFormError('Choose a local project folder first.');
+          return;
+        }
+
+        const projectLoaded = await loadProject();
+        if (!projectLoaded || !isCurrentBuild()) {
+          return;
+        }
+        hasLoadedProject = true;
+      }
+
+      if (!hasLoadedProject) {
+        setFormError('Choose a valid Glowbom project folder before building.');
         return;
       }
-    } catch (error) {
-      setFormError(toErrorMessage(error, 'Could not load the project stack settings.'));
-      return;
-    }
 
-    if (isCheckingSetup || healthError || health?.healthy === false) {
-      setFormError('The selected agent is not ready. Open Settings, refresh the checks, and follow the setup instructions.');
-      setIsSettingsOpen(true);
-      return;
-    }
+      const finalInstructions = instructions.trim() || DEFAULT_BUILD_INSTRUCTIONS;
+      const runAttachments = instructionAttachments;
 
-    const oversizedAttachment = instructionAttachments.find(
-      (attachment) => attachment.sizeBytes > MAX_INSTRUCTION_ATTACHMENT_BYTES,
-    );
-    if (oversizedAttachment) {
-      setFormError(
-        `Attachment "${oversizedAttachment.name}" exceeds 40MB (${formatAttachmentSize(oversizedAttachment.sizeBytes)}). Remove it to continue.`,
-      );
-      return;
-    }
+      let requestedBuildTargets: string[];
+      try {
+        const currentTargets = await previewRequest(runPath, 'inspect', { requireStackInstructions: true });
+        if (!isCurrentBuild()) return;
+        const availableIDs = new Set([...ALL_TARGET_IDS, ...currentTargets.map((target) => target.target)]);
+        requestedBuildTargets = selectedTargets.filter((id) => availableIDs.has(id));
+        if (!requestedBuildTargets.length) {
+          setFormError('Choose at least one available build target under Project.');
+          setIsProjectPickerOpen(true);
+          return;
+        }
+      } catch (error) {
+        if (isCurrentBuild()) setFormError(toErrorMessage(error, 'Could not load the project stack settings.'));
+        return;
+      }
 
-    const instructionAttachmentPaths = instructionAttachments
-      .map((attachment) => attachment.path.trim())
-      .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
-
-    let modelValue = '';
-    if (isCursor) {
-      modelValue = cursorModel.trim();
-    } else if (isOpenCodeConfigMode) {
-      modelValue = resolvedOpenCodeModelValue;
-    } else {
-      const customModelTrimmed = customModel.trim();
-      const customModelProvider = inferProviderFromCustomModel(customModelTrimmed);
-      const providerForValidation = customModelProvider || selectedProvider;
-
-      if (!providerForValidation && !customModelTrimmed) {
-        setFormError('Select an AI model before building.');
+      if (isCheckingSetup || healthError || health?.healthy === false) {
+        setFormError('The selected agent is not ready. Open Settings, refresh the checks, and follow the setup instructions.');
         setIsSettingsOpen(true);
         return;
       }
 
-      if (isAuthMode) {
-        if (customModelProvider && customModelProvider !== 'openai') {
-          setFormError('Auth provider mode currently supports OpenAI models only.');
-          setIsSettingsOpen(true);
-          return;
-        }
-        if (!isChatGPTConnected) {
-          setFormError('Connect ChatGPT first to build with your connected account.');
-          setIsSettingsOpen(true);
-          return;
-        }
+      const oversizedAttachment = runAttachments.find(
+        (attachment) => attachment.sizeBytes > MAX_INSTRUCTION_ATTACHMENT_BYTES,
+      );
+      if (oversizedAttachment) {
+        setFormError(
+          `Attachment "${oversizedAttachment.name}" exceeds 40MB (${formatAttachmentSize(oversizedAttachment.sizeBytes)}). Remove it to continue.`,
+        );
+        return;
       }
 
-      if (isApiKeyMode && providerForValidation) {
-        const providerDef = providerDefinition(providerForValidation);
-        if (providerDef?.requiresKey && providerDef.keyField) {
-          const requiredValue = providerKeys[providerDef.keyField].trim();
-          if (!requiredValue) {
-            if (providerDef.id === 'openai') {
-              setFormError('OpenAI model selected. Add your OpenAI API key before building.');
-            } else {
-              setFormError(`${providerDef.label} model selected. Add ${providerDef.keyLabel || 'the provider API key'}.`);
-            }
+      const instructionAttachmentPaths = runAttachments
+        .map((attachment) => attachment.path.trim())
+        .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+
+      let modelValue = '';
+      if (isCLI) {
+        if (isCodex || isACP) {
+          if (!selectedAgentModel) { setFormError('Connect an agent and choose its model in Settings.'); setIsSettingsOpen(true); return; }
+          modelValue = agentRequestModel(agentDriver, selectedAgentModel.id);
+        } else modelValue = isClaude ? claudeModel : cursorModel.trim();
+      } else if (isOpenCodeConfigMode) {
+        modelValue = resolvedOpenCodeModelValue;
+        if (isChatOnlyModel(modelValue)) {
+          setFormError('This model does not support builds. Choose another model in Settings.');
+          return;
+        }
+      } else {
+        const customModelTrimmed = customModel.trim();
+        const customModelProvider = inferProviderFromCustomModel(customModelTrimmed);
+        const providerForValidation = customModelProvider || selectedProvider;
+
+        if (!providerForValidation && !customModelTrimmed) {
+          setFormError('Select an AI model before building.');
+          setIsSettingsOpen(true);
+          return;
+        }
+
+        if (isAuthMode) {
+          if (customModelProvider && customModelProvider !== 'openai') {
+            setFormError('Auth provider mode currently supports OpenAI models only.');
+            setIsSettingsOpen(true);
+            return;
+          }
+          if (!isChatGPTConnected) {
+            setFormError('Connect ChatGPT first to build with your connected account.');
             setIsSettingsOpen(true);
             return;
           }
         }
+
+        if (isApiKeyMode && providerForValidation) {
+          const providerDef = providerDefinition(providerForValidation);
+          if (providerDef?.requiresKey && providerDef.keyField) {
+            const requiredValue = providerKeys[providerDef.keyField].trim();
+            if (!requiredValue) {
+              if (providerDef.id === 'openai') {
+                setFormError('OpenAI model selected. Add your OpenAI API key before building.');
+              } else {
+                setFormError(`${providerDef.label} model selected. Add ${providerDef.keyLabel || 'the provider API key'}.`);
+              }
+              setIsSettingsOpen(true);
+              return;
+            }
+          }
+        }
+
+        modelValue = customModelTrimmed || resolvedSelection?.value || '';
+        if (!modelValue) {
+          setFormError('Model is required.');
+          setIsSettingsOpen(true);
+          return;
+        }
       }
 
-      modelValue = customModelTrimmed || resolvedSelection?.value || '';
-      if (!modelValue) {
-        setFormError('Model is required.');
-        setIsSettingsOpen(true);
-        return;
-      }
+      setHistoryInfo(null);
+      setHistoryError(null);
+      setIsProjectPickerOpen(false);
+      setIsContextOpen(false);
+      setIsSettingsOpen(false);
+      setOptimisticHistoryEntry({
+        id: `optimistic-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        instructions: finalInstructions,
+        taskType: 'refine',
+        status: 'running',
+        outputSummary: '',
+        folderName: '',
+        missingAttachmentCount: 0,
+        attachments: runAttachments.map((attachment) => ({
+          path: attachment.path,
+          name: attachment.name,
+          filename: attachment.name,
+          sizeBytes: attachment.sizeBytes,
+          mimeType: attachment.mimeType,
+          mediaType: inferHistoryAttachmentMediaType(attachment.mimeType, attachment.name),
+          relativePath: attachment.path,
+        })),
+        optimistic: true,
+      });
+
+      const voiceSettings = readVoiceSettings();
+      const elevenLabsKey = providerKeys.elevenLabsKey.trim() || voiceSettings.elevenLabsKey.trim();
+      void refine.startRefine({
+        permissionMode: requestPermissionMode,
+        onAccepted: buildPermission.onAccepted,
+        agentDriver,
+        ...(isACP ? { agentName: selectedAgentModel?.name } : {}),
+        ...(isCodex ? { reasoningEffort: selectedCodexReasoningEffort(selectedAgentModel, { [agentModel]: codexReasoning }) } : {}),
+        projectPath: runPath,
+        instructions: finalInstructions,
+        buildTargets: requestedBuildTargets,
+        persistCurrentInstructionsToHistory: true,
+        instructionAttachmentPaths,
+        model: modelValue || undefined,
+        openaiAuthMode: effectiveOpenAIAuthMode,
+        providerKeys: { ...providerKeys, elevenLabsKey },
+        elevenLabsUseSavedKey: !elevenLabsKey && voiceSettings.useSavedKey === true,
+        ...buildImageSettings(imageSource as PrototypeImageSource),
+      });
+      return true;
+    } catch (error) {
+      if (isCurrentBuild()) setFormError(toErrorMessage(error, 'Could not prepare the project for Build.'));
+    } finally {
+      startingBuildRef.current = false;
+      if (mountedRef.current) setIsStartingBuild(false);
     }
-
-    setHistoryInfo(null);
-    setHistoryError(null);
-    setIsProjectPickerOpen(false);
-    setIsContextOpen(false);
-    setIsSettingsOpen(false);
-    setOptimisticHistoryEntry({
-      id: `optimistic-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      instructions: finalInstructions,
-      taskType: 'refine',
-      status: 'running',
-      outputSummary: '',
-      folderName: '',
-      missingAttachmentCount: 0,
-      attachments: instructionAttachments.map((attachment) => ({
-        path: attachment.path,
-        name: attachment.name,
-        filename: attachment.name,
-        sizeBytes: attachment.sizeBytes,
-        mimeType: attachment.mimeType,
-        mediaType: inferHistoryAttachmentMediaType(attachment.mimeType, attachment.name),
-        relativePath: attachment.path,
-      })),
-      optimistic: true,
-    });
-
-    void refine.startRefine({
-      agentDriver,
-      projectPath: selectedProjectPath,
-      instructions: finalInstructions,
-      buildTargets: requestedBuildTargets,
-      persistCurrentInstructionsToHistory: true,
-      instructionAttachmentPaths,
-      model: modelValue || undefined,
-      openaiAuthMode: effectiveOpenAIAuthMode,
-      providerKeys,
-      imageProviderKeys: {
-        openaiImageKey: selectedImageProvider.id === 'openai' ? imageProviderKeys.openaiImageKey : '',
-        geminiImageKey: selectedImageProvider.id === 'gemini' ? imageProviderKeys.geminiImageKey : '',
-        xaiImageKey: selectedImageProvider.id === 'xai' ? imageProviderKeys.xaiImageKey : '',
-      },
-      imageSource,
-    });
   };
 
   const submitQuestion = async () => {
@@ -2241,15 +2284,11 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
             <span className="topbar-product">OSS</span>
           </a>
           <nav className="topbar-links" aria-label="Main navigation">
-            <a href="https://glowbom.com/desktop/" rel="noreferrer" target="_blank">Desktop</a>
-            <a href="https://github.com/glowbom/glowbom-oss" rel="noreferrer" target="_blank">Open Source</a>
+            <button className="button secondary" type="button" onClick={() => setShowLive(true)}>Buzz</button>
             <a href="https://glowbom.com/docs/" rel="noreferrer" target="_blank">Docs</a>
-            <a href="https://glowbom.com/blog/" rel="noreferrer" target="_blank">Blog</a>
-            <a href="https://glowbom.com/pricing/" rel="noreferrer" target="_blank">Pricing</a>
           </nav>
           <div className="workspace-preferences">
             <AppearancePicker {...appearance} />
-            <button className="button secondary" onClick={onOpenAccount}>Glowbom account</button>
           </div>
         </div>
       </header>
@@ -2257,8 +2296,8 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
       <main className="page">
         <header className="brand-header brand-header-minimal">
           <div className="brand-copy">
-            <h1>Glowbom OSS</h1>
-            <p>Build Anything Locally</p>
+            <h1>Agent</h1>
+            <p>Sketch to software.</p>
           </div>
         </header>
 
@@ -2635,9 +2674,9 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                 </div>
               ) : null}
 
-              {projectHistory.length > 0 ? (
-                <div className="history-list">
-                  {projectHistory.map((entry) => {
+              {projectPicker.choices.length > 0 ? (
+                <div className="history-list project-selector-list">
+                  {projectPicker.choices.map((entry) => {
                     const isCurrent = entry.path === selectedProjectPath;
                     return (
                       <button
@@ -2739,8 +2778,6 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                 </button>
               </div>
 
-              <BuzzMembersPanel elevenLabsKey={providerKeys.elevenLabsKey} />
-
               <div className="summary-pill-row">
                 <span
                   className={`summary-pill ${
@@ -2759,12 +2796,35 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
 
               <label className="field-label" htmlFor="agentDriver">Coding agent</label>
               <select className="input" id="agentDriver" value={agentDriver}
-                disabled={refine.isRunning}
-                onChange={(event) => setAgentDriver(event.target.value as 'opencode' | 'cursor')}>
+                disabled={isStartingBuild || anyRunning}
+                onChange={(event) => setAgentDriver(event.target.value as BuildAgent)}>
                 <option value="opencode">OpenCode</option>
                 <option value="cursor">Cursor (preview)</option>
+                <option value="claude-code">Claude Code</option>
+                <option value="codex">Codex</option>
+                <option value="acp">ACP connection</option>
               </select>
-              {isCursor ? (
+              {isCodex || isACP ? (
+                <div>
+                  <fieldset disabled={refine.isRunning} style={{ border: 0, padding: 0, margin: 0 }}>{isCodex ? <CodexSettings /> : <ACPSettings />}</fieldset>
+                  <label className="field-label" htmlFor="connectedAgentModel">{isACP ? 'ACP connection' : 'Codex model'}</label>
+                  <select className="input" id="connectedAgentModel" disabled={refine.isRunning || !availableAgentModels.length} value={agentModel} onChange={event => setAgentModel(event.target.value)}>
+                    <option value="">Choose a connected {isACP ? 'agent' : 'model'}</option>
+                    {availableAgentModels.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}
+                  </select>
+                  {isCodex && <CodexReasoningPicker model={selectedAgentModel} value={codexReasoning} disabled={refine.isRunning} onChange={setCodexReasoning} />}
+                  {agentModelError && <p className="meta warn">{agentModelError}</p>}
+                </div>
+              ) : isClaude ? (
+                <div>
+                  <p className="meta">Install Claude Code and run <code>claude auth login</code> on this computer, then refresh. Uses your Claude Code account.</p>
+                  <label className="field-label" htmlFor="claudeModel">Claude Code model</label>
+                  <select className="input" id="claudeModel" value={claudeModel} disabled={refine.isRunning} onChange={event => setClaudeModel(event.target.value)}>
+                    <option value="default">Default</option><option value="sonnet">Sonnet</option><option value="opus">Opus</option><option value="haiku">Haiku</option>
+                  </select>
+                  <p className="meta">Model availability depends on your Claude Code account. Automatic project media generation is unavailable with Claude Code.</p>
+                </div>
+              ) : isCursor ? (
                 <div>
                   <p className="meta">Install Cursor CLI and run <code>cursor-agent login</code> on this computer, then refresh. Uses your Cursor account.</p>
                   <label className="field-label" htmlFor="cursorModel">Cursor model (optional)</label>
@@ -2787,7 +2847,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                     onChange={(event) => setCredentialMode(event.target.value as CredentialMode)}
                     value={credentialMode}
                   >
-                    {/* Connected accounts and direct API keys return with the shared desktop onboarding. */}
+                    {/* OpenCode keeps connected provider credentials on this computer. */}
                     <option value="opencode-config">OpenCode setup</option>
                   </select>
                 </div>
@@ -2816,9 +2876,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
 
               <div className="field-grid">
                 <div>
-                  <label className="field-label" htmlFor="modelPreset">
-                    Model
-                  </label>
+                  <label className="field-label" htmlFor="modelPreset">Model</label>
                   {isOpenCodeConfigMode ? (
                     <select
                       className="input"
@@ -2828,7 +2886,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                       value={selectedOpenCodeModel}
                     >
                       <option value={OPENCODE_RECOMMENDED_MODEL_VALUE}>
-                        {recommendedOpenCodeModelOptionLabel}
+                        {recommendedOpenCodeModel?.fullLabel || 'Recommended OpenCode model'}
                       </option>
                       {recommendedOpenCodeModel ? (
                         <option value={OPENCODE_DEFAULT_MODEL_VALUE}>OpenCode default</option>
@@ -2889,37 +2947,20 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
               <section className="image-generation-settings" aria-labelledby="imageGenerationHeading">
                 <div className="settings-section-heading">
                   <strong id="imageGenerationHeading">Image Generation</strong>
-                  <span className="meta">Used for app icons and project images. Separate from your coding agent.</span>
+                  <span className="meta">Used for app icons and agent asset review.</span>
                 </div>
 
-                <div>
-                  <label className="field-label" htmlFor="imageSource">
-                    Provider
-                  </label>
-                  <select
-                    className="input"
-                    disabled={refine.isRunning}
-                    id="imageSource"
-                    onChange={(event) => setImageSource(event.target.value)}
-                    value={imageSource}
-                  >
-                    {IMAGE_PROVIDERS.map((provider) => (
-                      <option key={provider.id} value={provider.source}>
-                        {provider.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <PrototypeImageSettings context="assets" sourceId={imageSource as PrototypeImageSource} apiKey="" disabled={refine.isRunning && !refine.pendingMediaApproval} onSourceChange={setImageSource} onKeyChange={() => {}} showKeyInput={false} onSourcesChange={setImageSources} />
 
                 <div className="field-grid image-provider-keys-grid">
                   {IMAGE_PROVIDERS.map((provider) => {
-                    const isActive = provider.id === selectedImageProvider.id;
+                    const isActive = provider.source === imageSource;
                     return (
                       <label className={`provider-key-item ${isActive ? 'active' : ''}`} key={provider.id}>
                         <span className="field-label">{provider.keyLabel}</span>
                         <input
                           className="input"
-                          disabled={refine.isRunning}
+                          disabled={refine.isRunning && !refine.pendingMediaApproval}
                           onChange={(event) => updateImageProviderKey(provider.keyField, event.target.value)}
                           placeholder={provider.keyPlaceholder}
                           type="password"
@@ -3031,7 +3072,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                   {healthError ? <span className="error-inline">{healthError}</span> : null}
                 </div>
 
-                {!isCursor ? <div className="status-tile">
+                {!isCLI ? <div className="status-tile">
                   <span className="status-label">Agent server</span>
                   <strong className={authStatus?.serverRunning ? 'ok' : authStatus ? 'warn' : ''}>
                     {authStatus ? (authStatus.serverRunning ? 'Running' : 'Stopped') : 'Checking...'}
@@ -3105,7 +3146,9 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
                   </div>
 </div> : null}
 
-          {formError ? <p className="error-inline composer-error">{formError}</p> : null}
+          {!refine.isRunning && <BuildPermissionControl driver={agentDriver} checked={buildPermission.allowAll} onChange={buildPermission.setAllowAll} disabled={isStartingBuild} />}
+          {refine.isRunning && refine.permissionMode === 'all' && <p className="meta-text" role="status"><strong>Allow all for this build is active.</strong> {allBuildPermissionScope}</p>}
+          {formError ? <p className="error-inline composer-error" role="alert">{formError}</p> : null}
           {!formError && projectError && !isProjectPickerOpen ? <p className="error-inline composer-error">{projectError}</p> : null}
           {!isProjectPickerOpen && historyError ? <p className="error-inline composer-error">{historyError}</p> : null}
           {!isProjectPickerOpen && historyInfo ? <p className="meta ok composer-note">{historyInfo}</p> : null}
@@ -3134,7 +3177,7 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
               <span className={`run-status status-${refine.status}`}>{RUN_STATUS_LABEL[refine.status]}</span>
               <button
                 className="button"
-                disabled={refine.isRunning || refine.isSubmittingInput || isLoadingProject || isPickingInstructionFiles}
+                disabled={refine.isRunning || refine.isSubmittingInput || isLoadingProject || isPickingFolder || isPickingInstructionFiles || isStartingBuild}
                 onClick={() => {
                   void startRefine();
                 }}
@@ -3149,8 +3192,8 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
           </div>
         </section>
 
-        {activeProject && selectedProjectPath ? (
-          <ProjectPreview key={selectedProjectPath} projectPath={selectedProjectPath} runStatus={refine.status} hidden={!isPreviewOpen} onTargetsChange={handlePreviewTargets} onStackAdded={handleStackAdded} />
+        { activeProject && selectedProjectPath ? (
+          <ProjectPreview key={selectedProjectPath} projectPath={selectedProjectPath} runStatus={refine.status} runId={refine.projectPath === selectedProjectPath ? refine.runId : undefined} hidden={!isPreviewOpen} onShow={() => setIsPreviewOpen(true)} onTargetsChange={handlePreviewTargets} onStackAdded={handleStackAdded} />
         ) : null}
 
         <section className="card activity-card">
@@ -3278,86 +3321,27 @@ export default function App({ onOpenAccount, ...appearance }: AppearanceProps & 
               <p className="meta-text">Pattern: {refine.pendingPermission.pattern}</p>
             ) : null}
 
+            {agentPermissionResponses(refine.pendingPermission).includes('all') && <p className="meta-text">{allBuildPermissionScope}</p>}
             <div className="row">
-              <button
-                className="button"
+              {agentPermissionResponses(refine.pendingPermission).map(response => <button
+                key={response}
+                className={response === 'once' ? 'button' : response === 'reject' || response === 'cancel' ? 'button danger' : 'button secondary'}
                 disabled={refine.isSubmittingInput}
-                onClick={() => {
-                  void refine.respondToPermission('once');
-                }}
-              >
-                Allow once
-              </button>
-              <button
-                className="button secondary"
-                disabled={refine.isSubmittingInput}
-                onClick={() => {
-                  void refine.respondToPermission('always');
-                }}
-              >
-                Always allow
-              </button>
-              <button
-                className="button danger"
-                disabled={refine.isSubmittingInput}
-                onClick={() => {
-                  void refine.respondToPermission('reject');
-                }}
-              >
-                Deny
-              </button>
+                onClick={() => { void refine.respondToPermission(response); }}
+              >{permissionResponseLabels[response]}</button>)}
             </div>
           </div>
           ) : null}
 
           {refine.pendingMediaApproval ? (
             <div className="input-panel">
-              <h3>{refine.pendingMediaApproval.title}</h3>
-              {refine.pendingMediaApproval.message ? (
-                <p className="meta-text">{refine.pendingMediaApproval.message}</p>
-              ) : null}
-
-              <div className="media-approval-list">
-                {refine.pendingMediaApproval.items.map((item, index) => {
-                  const typeLabel = item.audioType || item.mediaType;
-                  return (
-                    <div className="media-approval-item" key={`${item.mediaType}-${item.prompt}-${index}`}>
-                      <div className="media-approval-item-heading">
-                        <span>{typeLabel}</span>
-                        {item.provider ? <span className="meta-text">{item.provider}</span> : null}
-                      </div>
-                      <p>{item.prompt}</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="row">
-                <button
-                  className="button"
-                  disabled={refine.isSubmittingInput}
-                  onClick={() => {
-                    void refine.respondToMediaApproval('generate');
-                  }}
-                  type="button"
-                >
-                  Generate assets
-                </button>
-                <button
-                  className="button secondary"
-                  disabled={refine.isSubmittingInput}
-                  onClick={() => {
-                    void refine.respondToMediaApproval('skip');
-                  }}
-                  type="button"
-                >
-                  Skip for now
-                </button>
-              </div>
+              <MediaApprovalEditor key={refine.pendingMediaApproval.id} approval={refine.pendingMediaApproval} busy={refine.isSubmittingInput} error={refine.error} onRespond={refine.respondToMediaApproval} />
             </div>
           ) : null}
+
         </section>
       </main>
+      {showLive && <GlowbomLiveSettings elevenLabsKey={providerKeys.elevenLabsKey} onClose={() => setShowLive(false)} />}
     </div>
   );
 }

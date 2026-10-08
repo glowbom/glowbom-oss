@@ -1,0 +1,9 @@
+.prototype-image-settings { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid var(--border); }
+.prototype-image-settings label { display: grid; gap: 6px; color: var(--text); font-size: 12px; }
+.prototype-image-settings select, .prototype-image-settings input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface-soft); font: inherit; }
+.prototype-image-settings p, .prototype-image-settings small { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.prototype-image-recommendation { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.prototype-image-recommendation strong { color: var(--text); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.prototype-image-recommendation button { justify-self: start; margin-top: 4px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; cursor: pointer; }
+.prototype-image-recommendation button:disabled { opacity: .5; cursor: default; }
+.magic-native .magic-settings { max-height: max(120px, min(460px, calc(100dvh - 220px))); overflow-y: auto; }

@@ -2,15 +2,15 @@ import type { DiscoveredStack } from '../lib/preview';
 import { useState } from 'react';
 import { STACK_CATEGORIES, STACK_PRESETS, type StackCategory, type StackPreset } from '../lib/stack-presets';
 
-export function StackPresetPicker({ selected, disabled, onChoose, existing = [] }: {
-  existing?: DiscoveredStack[]; selected: string; disabled: boolean; onChoose: (preset?: StackPreset) => void;
+export function StackPresetPicker({ selected, disabled, onChoose, existing = [], covered = [] }: {
+  existing?: DiscoveredStack[]; covered?: string[]; selected: string; disabled: boolean; onChoose: (preset?: StackPreset) => void;
 }) {
   const [category, setCategory] = useState<StackCategory>('web');
   const [search, setSearch] = useState('');
   const query = search.trim().toLowerCase();
-  const choices = STACK_PRESETS.filter((p) => query
+  const choices = STACK_PRESETS.filter((p) => !covered.includes(p.id) && (query
     ? `${p.name} ${p.summary} ${p.requirements}`.toLowerCase().includes(query)
-    : p.category === category);
+    : p.category === category));
   return <div className="stack-picker">
     <div className="stack-picker-heading">
       <label>Find a stack<input className="input" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search React, PHP, games…" /></label>

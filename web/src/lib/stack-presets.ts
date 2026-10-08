@@ -1,5 +1,7 @@
 import ossPackage from '../../package.json';
 
+const previewOrigin = typeof window === 'undefined' ? 'http://127.0.0.1:4572' : window.location.origin;
+
 export const STACK_CATEGORIES = [
   { id: 'web', name: 'Web' },
   { id: 'apps', name: 'Mobile & desktop' },
@@ -75,7 +77,7 @@ not claim a browser preview verifies native behavior.`,
     description: `Build a TypeScript Next.js app using the App Router and a compatible stable React version. Use
 server components where appropriate and client components for interactivity. Include dev, build, and
 test scripts. Keep secrets on the server. For local development only, allow embedding from
-http://127.0.0.1:4572 and http://localhost:4572; preserve production frame restrictions. Honor the
+${previewOrigin}; preserve production frame restrictions. Honor the
 assigned loopback host and port. Keep the app self-contained. Preserve existing dependencies,
 package manager, and data formats when refining an existing app. Document setup and run behavior
 tests and build checks; report unavailable checks. Do not claim a browser preview verifies native
@@ -94,7 +96,7 @@ behavior.`,
     description: `Build with plain PHP and no framework unless requested. Put the entry point at public/index.php,
 static assets under public/assets, and application code outside public. Use sessions, CSRF
 protection for mutations, escaped output, and server-side validation. Include PHP lint checks. For
-local development only, allow embedding from http://127.0.0.1:4572 and http://localhost:4572;
+local development only, allow embedding from ${previewOrigin};
 preserve production frame restrictions. Honor the assigned loopback host and port. Keep the app
 self-contained. Preserve existing dependencies, package manager, and data formats when refining an
 existing app. Document setup and run behavior tests and build checks; report unavailable checks. Do
@@ -119,7 +121,7 @@ Provide browser alternatives for native-only APIs. Add tools/preview.mjs accepti
 --port, EXPO_PACKAGER_PROXY_URL set to the supplied http host and port, and CI=1. Forward
 termination signals and do not open a browser automatically. Use npm install for a new project.
 Document device/simulator setup and web export checks. For local development only, allow embedding
-from http://127.0.0.1:4572 and http://localhost:4572; preserve production frame restrictions. Honor
+from ${previewOrigin}; preserve production frame restrictions. Honor
 the assigned loopback host and port. Keep the app self-contained. Preserve existing dependencies,
 package manager, and data formats when refining an existing app. Document setup and run behavior
 tests and build checks; report unavailable checks. Do not claim a browser preview verifies native
@@ -140,7 +142,7 @@ behavior.`,
 imports for native integrations. Provide responsive layouts and accessible widgets. Include widget
 tests, flutter analyze, and flutter build web. Document flutter pub get and platform setup. Browser
 preview uses flutter run -d web-server. For local development only, allow embedding from
-http://127.0.0.1:4572 and http://localhost:4572; preserve production frame restrictions. Honor the
+${previewOrigin}; preserve production frame restrictions. Honor the
 assigned loopback host and port. Keep the app self-contained. Preserve existing dependencies,
 package manager, and data formats when refining an existing app. Document setup and run behavior
 tests and build checks; report unavailable checks. Do not claim a browser preview verifies native
@@ -152,7 +154,7 @@ behavior.`,
   {
     id: "swiftui",
     name: "SwiftUI",
-    directory: "apple-app",
+    directory: "apple",
     category: "apps",
     summary: "A native Apple app.",
     preview: "Native tools",
@@ -168,7 +170,7 @@ checks. Do not claim a browser preview verifies native behavior.`,
   {
     id: "kotlin",
     name: "Kotlin + Compose",
-    directory: "android-app",
+    directory: "android",
     category: "apps",
     summary: "A native Android app.",
     preview: "Native tools",
@@ -196,8 +198,7 @@ accepting --host and --port. It should run Godot headless export to build/web/in
 clearly on export errors, and serve only build/web on the supplied loopback address. Support .wasm
 MIME types. Re-export on source changes with debouncing, excluding .godot and build output, without
 overlapping exports. Clean up subprocesses on shutdown. Keep gameplay separate from UI and document
-editor/native testing. For local development only, allow embedding from http://127.0.0.1:4572 and
-http://localhost:4572; preserve production frame restrictions. Honor the assigned loopback host and
+editor/native testing. For local development only, allow embedding from ${previewOrigin}; preserve production frame restrictions. Honor the assigned loopback host and
 port. Keep the app self-contained. Preserve existing dependencies, package manager, and data formats
 when refining an existing app. Document setup and run behavior tests and build checks; report
 unavailable checks. Do not claim a browser preview verifies native behavior.`,
@@ -220,8 +221,7 @@ accepting --host and --port. It should run Godot headless export to build/web/in
 clearly on export errors, and serve only build/web on the supplied loopback address. Support .wasm
 MIME types. Re-export on source changes with debouncing, excluding .godot and build output, without
 overlapping exports. Clean up subprocesses on shutdown. Keep gameplay separate from UI and document
-editor/native testing. For local development only, allow embedding from http://127.0.0.1:4572 and
-http://localhost:4572; preserve production frame restrictions. Honor the assigned loopback host and
+editor/native testing. For local development only, allow embedding from ${previewOrigin}; preserve production frame restrictions. Honor the assigned loopback host and
 port. Keep the app self-contained. Preserve existing dependencies, package manager, and data formats
 when refining an existing app. Document setup and run behavior tests and build checks; report
 unavailable checks. Do not claim a browser preview verifies native behavior.`,
@@ -241,7 +241,7 @@ unavailable checks. Do not claim a browser preview verifies native behavior.`,
 interactive API documentation. Use typed request/response models and explicit validation. Add a
 requirements.txt, setup instructions for a .venv environment, and pytest tests. Do not expose
 secrets in API responses. Start with .venv/bin/python -m uvicorn main:app --host and --port. For
-local development only, allow embedding from http://127.0.0.1:4572 and http://localhost:4572;
+local development only, allow embedding from ${previewOrigin};
 preserve production frame restrictions. Honor the assigned loopback host and port. Keep the app
 self-contained. Preserve existing dependencies, package manager, and data formats when refining an
 existing app. Document setup and run behavior tests and build checks; report unavailable checks. Do
@@ -261,8 +261,7 @@ not claim a browser preview verifies native behavior.`,
     description: `Build a Go module with an HTTP server at the module root, using net/http. Accept --host and --port
 flags and bind exactly to their values. Provide a useful HTML status/API page at / for browser
 preview. Include graceful shutdown, request validation, timeouts, and go test coverage. Document go
-run and go build. For local development only, allow embedding from http://127.0.0.1:4572 and
-http://localhost:4572; preserve production frame restrictions. Honor the assigned loopback host and
+run and go build. For local development only, allow embedding from ${previewOrigin}; preserve production frame restrictions. Honor the assigned loopback host and
 port. Keep the app self-contained. Preserve existing dependencies, package manager, and data formats
 when refining an existing app. Document setup and run behavior tests and build checks; report
 unavailable checks. Do not claim a browser preview verifies native behavior.`,

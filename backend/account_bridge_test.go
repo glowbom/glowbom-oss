@@ -26,7 +26,7 @@ func TestAccountBridgeRequiresAuthenticationEvenWithoutGlobalToken(t *testing.T)
 		t.Setenv("GLOWBOM_SERVER_TOKEN", token)
 		t.Setenv("GLOWBY_SERVER_TOKEN", "")
 		b := newAccountBridge(func(context.Context, ...string) ([]byte, error) { t.Fatal("unauthorized command ran"); return nil, nil })
-		for _, path := range []string{"/account/status", "/account/login", "/account/logout", "/account/login/cancel"} {
+		for _, path := range []string{"/account/status", "/account/login", "/account/logout", "/account/login/cancel", "/account/project"} {
 			w := httptest.NewRecorder()
 			b.ServeHTTP(w, httptest.NewRequest("POST", path, nil))
 			if w.Code != 401 {
@@ -102,7 +102,7 @@ func TestAccountLoginIsAsyncDeduplicatedCancelableAndSerializesLogout(t *testing
 	if calls.Load() != 1 {
 		t.Fatal("duplicate login")
 	}
-	for _, request := range [][2]string{{"POST", "/account/logout"}, {"GET", "/account/status"}} {
+	for _, request := range [][2]string{{"POST", "/account/logout"}, {"GET", "/account/status"}, {"POST", "/account/project"}} {
 		if w := accountTestRequest(b, request[0], request[1]); w.Code != 409 {
 			t.Fatal("credential race allowed")
 		}
@@ -128,7 +128,7 @@ func TestAccountBridgeMethodsOriginsAndFailedLogin(t *testing.T) {
 		calls.Add(1)
 		return nil, errors.New("private stderr")
 	})
-	for _, request := range [][2]string{{"POST", "/account/status"}, {"GET", "/account/logout"}, {"GET", "/account/login/cancel"}, {"DELETE", "/account/login"}} {
+	for _, request := range [][2]string{{"POST", "/account/status"}, {"GET", "/account/logout"}, {"GET", "/account/login/cancel"}, {"DELETE", "/account/login"}, {"GET", "/account/project"}} {
 		if w := accountTestRequest(b, request[0], request[1]); w.Code != 405 {
 			t.Fatal("unsafe method accepted")
 		}
@@ -152,5 +152,32 @@ func TestAccountBridgeMethodsOriginsAndFailedLogin(t *testing.T) {
 	}
 	if w := accountTestRequest(b, "POST", "/account/logout"); w.Code != 503 {
 		t.Fatal("failed logout reported success")
+	}
+}
+
+func TestAccountBridgeCreditBalances(t *testing.T) {
+	t.Setenv("GLOWBOM_SERVER_TOKEN", "fixture-token")
+	for _, status := range []string{"signed_in", "signed_out"} {
+		b := newAccountBridge(func(_ context.Context, _ ...string) ([]byte, error) {
+			return []byte(`{"version":1,"status":"` + status + `","uid":"owner","subscriptionStatus":"premium","remainingCredits":2500,"allowanceCredits":4000,"remainingUsd":12.5}`), nil
+		})
+		w := accountTestRequest(b, "GET", "/account/status")
+		var got localAccountStatus
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(w.Body.String(), "Usd") {
+			t.Fatal("dollar balance exposed")
+		}
+		if status == "signed_in" && (got.RemainingCredits == nil || *got.RemainingCredits != 2500 || got.AllowanceCredits == nil || *got.AllowanceCredits != 4000) {
+			t.Fatal("credit balance missing")
+		}
+		if status == "signed_out" && (got.RemainingCredits != nil || got.AllowanceCredits != nil) {
+			t.Fatal("signed-out balance not cleared")
+		}
+	}
+	negative := -1.0
+	if validAccountStatus(localAccountStatus{Version: 1, Status: "signed_in", UID: "owner", SubscriptionStatus: "premium", RemainingCredits: &negative}) {
+		t.Fatal("negative balance accepted")
 	}
 }

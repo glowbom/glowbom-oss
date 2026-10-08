@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/glowbom/glowbom-oss/cli/opencodecompat"
 )
 
 type depCheck struct {
@@ -18,7 +23,6 @@ func runDoctor() int {
 	checks := []depCheck{
 		{name: "go", required: true, fixHint: "Install: https://go.dev/dl/"},
 		{name: "bun", required: true, fixHint: "Install: https://bun.sh/"},
-		{name: "opencode", required: false, fixHint: "Install: bun install -g opencode-ai (or use Cursor CLI)"},
 	}
 
 	issues := 0
@@ -42,13 +46,20 @@ func runDoctor() int {
 		}
 	}
 
-	if _, err := exec.LookPath("opencode"); err != nil {
-		if !cursorCLIAvailable() {
-			issues++
-			fmt.Println("  [MISSING] Coding agent: install OpenCode or Cursor CLI (https://cursor.com/docs/cli/installation)")
-		} else {
-			fmt.Println("  [ok]    Cursor CLI found. Run cursor-agent login and choose Cursor in Settings.")
-		}
+	if runtime.GOOS == "linux" && !reportLinuxFolderPicker(os.Stdout, exec.LookPath) {
+		issues++
+	}
+
+	agentRuntime, runtimeErr := opencodecompat.Resolve(context.Background())
+	if runtimeErr == nil {
+		selection, _ := opencodecompat.Selection()
+		fmt.Printf("  [ok]    OpenCode %s, %s adapter (%s)\n", agentRuntime.Version, agentRuntime.Protocol, agentRuntime.Executable)
+		fmt.Printf("          Version preference: %s\n", selection)
+	} else {
+		fmt.Printf("  [missing] OpenCode: %s\n", runtimeErr)
+	}
+	if !reportCodingAgents(os.Stdout, runtimeErr == nil) {
+		issues++
 	}
 
 	if root, err := findGlowbomRoot(); err != nil {
@@ -69,6 +80,27 @@ func runDoctor() int {
 	return 0
 }
 
+func reportCodingAgents(output io.Writer, openCodeAvailable bool) bool {
+	available := openCodeAvailable
+	for _, agent := range []struct {
+		installed bool
+		message   string
+	}{
+		{cursorCLIAvailable(), "Cursor CLI found. Run cursor-agent login and choose Cursor in Settings."},
+		{claudeCodeCLIAvailable(), "Claude Code found. Run claude to sign in and choose Claude Code in Build."},
+		{codexCLIAvailable(), "Codex found. Run codex login and choose Codex in Build."},
+	} {
+		if agent.installed {
+			available = true
+			fmt.Fprintf(output, "  [ok]    %s\n", agent.message)
+		}
+	}
+	if !available {
+		fmt.Fprintln(output, "  [MISSING] Coding agent: install OpenCode, Cursor CLI, Claude Code, or Codex.")
+	}
+	return available
+}
+
 func cursorCLIAvailable() bool {
 	if configured := strings.TrimSpace(os.Getenv("GLOWBOM_CURSOR_BIN")); configured != "" {
 		_, err := exec.LookPath(configured)
@@ -83,6 +115,63 @@ func cursorCLIAvailable() bool {
 	}
 	_, err = exec.LookPath(filepath.Join(home, ".local", "bin", "cursor-agent"))
 	return err == nil
+}
+
+func claudeCodeCLIAvailable() bool {
+	if configured := strings.TrimSpace(os.Getenv("GLOWBOM_CLAUDE_CODE_BIN")); configured != "" {
+		_, err := exec.LookPath(configured)
+		return err == nil
+	}
+	name := "claude"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if _, err := exec.LookPath(filepath.Join(home, ".local", "bin", name)); err == nil {
+			return true
+		}
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func codexCLIAvailable() bool {
+	if configured := strings.TrimSpace(os.Getenv("GLOWBOM_CODEX_BIN")); configured != "" {
+		_, err := exec.LookPath(configured)
+		return err == nil
+	}
+	name := "codex"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	candidates := []string{
+		filepath.Join("/opt/homebrew/bin", name),
+		filepath.Join("/usr/local/bin", name),
+	}
+	applications := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, ".local", "bin", name),
+			filepath.Join(home, ".npm-global", "bin", name))
+		applications = append(applications, filepath.Join(home, "Applications"))
+	}
+	if runtime.GOOS == "darwin" {
+		for _, directory := range applications {
+			for _, bundle := range []string{"ChatGPT.app", "Codex.app"} {
+				resources := filepath.Join(directory, bundle, "Contents", "Resources")
+				candidates = append(candidates, filepath.Join(resources, "codex-cli", "bin", name), filepath.Join(resources, name))
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func commandVersion(name string) string {

@@ -1,9 +1,14 @@
-# Buzz connection preview
+# Glowbom Live connection preview
 
-Open **Settings > Buzz connection**. Enter an HTTPS relay URL, channel UUID,
+In the public Agent + Buzz browser, open **Settings** and the Buzz controls.
+The full Desktop client uses **Account → Settings → Glowbom Live**. No Glowbom
+sign-in is required. UI paths below that name Account or native launch controls
+refer to Desktop; the local backend protocol remains open.
+Enter an HTTPS relay URL in **Server URL**, a channel UUID,
 and your Buzz identity private key (hex or nsec). For a personal identity,
-leave owner-auth tag blank. Agent identities may need a NIP-OA auth tag.
-Click **Connect**, then use **Refresh members** without re-entering the key.
+leave the owner-auth tag under **Advanced** blank. Agent identities may need a
+NIP-OA auth tag. Click **Connect**, then expand **Channel members** to see the
+roster or use its refresh icon without re-entering the key.
 The relay URL and channel ID are remembered in this browser across reloads
 and backend restarts. Private keys, owner-auth tags, and member lists are not
 saved with this setup. After a backend restart, enter the private key again.
@@ -11,26 +16,27 @@ Channel and member IDs display their first eight and last four characters.
 Focus the disconnected channel field to edit its full value. Use **Copy channel
 ID**, or click a member's abbreviated ID, to copy the complete identifier.
 The panel shows **Connected** or **Disconnected**, and checks the shared local
-status every five seconds while Settings is open and the page is visible.
+status every five seconds while Glowbom Live settings is open and the page is visible.
 If the backend cannot be reached or its response is invalid, it shows
-**Status unavailable** with a **Check connection** action.
+**Status unavailable** with a refresh icon to check again.
 
-Once connected, the main actions are **Copy local backend access token** and
-**Disconnect**. Copy puts the token already used by OSS onto your clipboard
+Once connected, expand **Connect the Live app** to use **Copy access token**.
+Copy puts the token already used by OSS onto your clipboard
 without displaying it. Paste it into Glowbom Live on the same computer.
 This is the local OSS access token, not your Buzz private key. It grants access
 to the local backend, not just the Buzz endpoints. No extra token endpoint or
 credential storage is added. Clipboard permissions must allow the copy.
 
 Member rows show Buzz profile pictures, with initials when no supported image
-is available. **Refresh members** reloads profile metadata and retries pictures.
+is available. The **Refresh members** icon reloads profile metadata and retries pictures.
 Relay-hosted pictures use the connected identity through `buzz media get` on
 the backend. Public HTTPS picture URLs load in the browser without the local
 backend token or Buzz credentials. Private image bytes stay in browser memory
 while the rows are mounted; closing Settings or disconnecting releases them.
 
 The connection belongs to the local backend and is shared by OSS and the
-Glowbom Live game. Closing Settings or the browser does not disconnect.
+Glowbom Live game. Closing settings or the browser does not disconnect.
+Closing settings clears any unsent private key or owner-auth tag from the form.
 **Disconnect** cancels an outstanding lookup and drops the stored credentials
 and roster. Stopping the backend also ends the session. Credentials are kept
 in process memory only, never deliberately written to disk or browser storage.
@@ -95,8 +101,38 @@ empty or incorrect channel.
 
 ## Using the game
 
-Connect in OSS first, then click **Copy local backend access token** in
-**Settings > Buzz connection**. Run Glowbom Live from the Godot editor and
+The settings footer offers **Get Glowbom Live** when no supported installation
+is found. It selects the published Mac, Windows x64, or matching Linux download;
+unsupported or unknown devices open the download page. Nothing downloads until
+you click. On Mac, installing **Glowbom Live.app** in `/Applications` or
+`~/Applications` changes the button to **Open Glowbom Live**. Returning to
+Glowbom checks the installation again. Desktop downloads open in the system
+browser. A failed check shows a retry action instead of claiming the app is absent.
+The Mac Desktop shell detects and launches the app directly, so it does not need
+a backend restart for these actions. The local web interface uses the endpoints below.
+The 4.1.1 Desktop candidate also reads the installed Mac app's version. If it is
+older than the intended Live release, the same footer offers **Update Glowbom
+Live**. This opens the download; quit Live and replace the installed app yourself.
+An unreadable version is not treated as proof that the app is outdated.
+
+Open starts that installed app with the local backend token in its process
+environment. The token is never placed in a link, process argument, or API response.
+An already running game must be closed before a fresh environment can be handed
+to it. Windows and Linux currently use the download and manual-open flow.
+
+The launch handoff supplies `GLOWBOM_SERVER_TOKEN`, `GLOWBOM_BACKEND_URL`, and
+`GLOWBOM_LIVE_AUTOSTART=1`. The 4.1.1 Live candidate accepts the current token and
+loopback backend address, checks the connection, and enters the office
+automatically. A failed connection keeps setup available for retry. Verify this
+with the packaged Desktop and Live pair before publishing their update.
+Authenticated `GET /live/app` reports installation status, and `POST /live/app`
+opens the app. These endpoints accept no executable path or backend URL from the
+request.
+
+For manual setup:
+
+Connect in OSS first, then open **Account → Settings → Glowbom Live →
+Connect the Live app** and click **Copy access token**. Run Glowbom Live from the Godot editor and
 choose the Glowbom Live experience. Paste into its **Local backend access
 token** field and press **New Game**.
 The game reads `http://127.0.0.1:4569/buzz/session` and chooses the smallest
@@ -123,27 +159,37 @@ fixture identities, without accessing personal credentials or changing Buzz.
 
 ## Live messages and optional speech
 
-After connecting, the Buzz settings panel starts an authenticated WebSocket listener
+After connecting, Glowbom Live settings starts an authenticated WebSocket listener
 for new messages in that channel. Its status is separate from roster connectivity.
 Glowbom Live also starts the listener when it requests the feed. Reconnect uses
 backoff; initial and recovered history are not eligible for speech. This observer
 does not publish channel messages.
 
-In **Settings > Buzz connection**, enter an **ElevenLabs API key for Live** and
-choose **Use key for Live**, or use the existing ElevenLabs key when offered.
-Alternatively, set `ELEVENLABS_API_KEY` in the backend environment before starting
-OSS. UI-supplied keys are now saved privately on the backend computer and restored
-on new connections. Clearing or changing the key turns current speech off.
-See remembered-key details below for storage and environment fallback behavior.
+Open Glowbom Live and expand **Messages > Default voice** to choose ElevenLabs,
+Local service, or System voice. The default applies to characters without their
+own voice override. **Speak new messages** starts enabled when the selected source
+is available; **Read all new messages** can opt into full-message speech. The
+initial default source is ElevenLabs.
 
-Open Glowbom Live. **Speak new messages** starts enabled when a key is available and uses
-the existing default voice and multilingual model. Enabled speech sends
-message text to ElevenLabs and uses quota. The game receives MP3 audio, never the
-ElevenLabs or Buzz private key. Generation writes no audio files and logs no
-conversation text. The existing general-purpose `/audio` route is unchanged.
+For ElevenLabs, expand **Live messages and speech** in **Account → Settings →
+Glowbom Live** and enter an optional **ElevenLabs API key for Live**. Choose
+**Use key for Live**, use the existing ElevenLabs key when offered, or set
+`ELEVENLABS_API_KEY` in the backend environment before starting OSS. UI-supplied
+keys are saved privately on the backend computer and restored on new connections.
+Changing or clearing the key turns current speech off. Messages spoken with
+ElevenLabs use credits.
 
-Only one Live client may enable speech at a time. Its lease expires after 15 seconds
-without feed requests. Each message is attempted at most once per backend session;
+Local voice uses whichever of KittenTTS Mini or VoiceStudio is running on
+`127.0.0.1:3900`. They currently share that port, so only one can run at a time.
+System voice uses the voices installed on the device running Godot and requires
+no ElevenLabs key or local speech service. Characters can mix ElevenLabs, system,
+and the one running local service through **Customize team > Voice**. If a
+selected voice source fails, the message remains visible. See remembered-key
+details below for key storage and environment fallback behavior.
+
+Only one Live client may enable speech at a time. Its lease normally expires after
+15 seconds without feed requests. Local speech extends it for up to two minutes
+while a request is active. Each message is attempted at most once per backend session;
 failed generations are not retried. In default limited mode, the client queues up to five messages, skips
 speech older than 30 seconds, and speaks at most 500 characters per message. Full
 message text remains available in the feed, up to the 32 KiB message limit. Muting
@@ -151,11 +197,18 @@ stops local playback and cancels generation where possible; requests already
 accepted by the provider may still use quota.
 
 The authenticated local endpoints are `GET /buzz/session/messages` and
-`POST /buzz/session/speech`. The first returns a bounded 128-message buffer, sequence
-numbers, listener status, and speech availability. The second configures the
-session key, claims/releases speech for a client, or generates audio for an eligible
-buffered event ID. It does not accept arbitrary speech text. Disconnect cancels the
-listener and speech work and clears session data. No message history is persisted.
+`POST /buzz/session/speech`. The first returns a bounded 128-message buffer,
+sequence numbers, listener status, and speech availability. The second configures
+the ElevenLabs key, claims/releases speech for a client, or handles an eligible
+buffered event ID. It does not accept arbitrary speech text. When claiming speech,
+Godot supplies its device-local `defaultVoiceProvider` and `defaultVoiceId`. The
+backend uses the sender's saved profile override when one exists. ElevenLabs
+returns MP3, the running local service returns WAV, and system voice returns JSON
+with the validated event text segment and native voice ID for Godot to speak. The
+game never receives the ElevenLabs or Buzz private key. Generation writes no
+audio files and logs no conversation text. The existing general-purpose `/audio`
+route is unchanged. Disconnect cancels the listener and speech work and clears
+session data. No message history is persisted.
 
 The relay connection uses kind 9 messages scoped by the channel `h` tag, NIP-42
 authentication, and optional owner authorization. Event IDs and signatures are
@@ -193,19 +246,26 @@ for playback. Pending full-message speech retains the same reference fields.
 ## Local character preferences
 
 Glowbom Live can edit each roster member's character and speaking voice through
-its Customize team screen or a portrait click. OSS persists body, accessory,
-voice IDs, and label preferences in `Glowbom/live-profiles.json` under the OS user configuration
-directory. Preferences are keyed by public identity, survive restarts, and do not
-modify Buzz. Only current roster entries are returned or writable through
+its Customize team screen or a portrait click. **Use Live default** inherits the
+provider and voice selected in Godot's Messages panel. **Choose a voice** saves a
+provider and voice for that character. OSS persists body, accessory, optional
+`voiceProvider` and `voiceId`, and label preferences in `Glowbom/live-profiles.json`
+under the OS user configuration directory. Preferences are keyed by public
+identity, survive restarts, and do not modify Buzz. Only current roster entries
+are returned or writable through
 `GET/PUT /buzz/session/profiles`. Writes replace the saved file through a temporary
 file; a corrupt file is reported rather than overwritten.
 
-`GET /buzz/session/voices` reads the account's voice list using the configured
-ElevenLabs key. `POST /buzz/session/voice-preview` generates a short fixed sample
-for a known voice, only on an explicit Preview action. Previews use credits. These
-routes keep the same local authentication and origin checks as other Buzz routes.
-The game and preference file never receive the ElevenLabs key. Speech uses each
-sender's assigned voice, or the shared default when no voice is assigned.
+`GET /buzz/session/voices?provider=elevenlabs|local` lists voices from the
+selected backend source. Godot lists system voices from its own device. On an
+explicit Preview action, `POST /buzz/session/voice-preview` generates a short
+ElevenLabs or local sample; Godot previews system voices natively. ElevenLabs
+previews use credits. These routes keep the same local authentication and origin
+checks as other Buzz routes. The game and preference file never receive the
+ElevenLabs key. A saved nonempty `voiceId` without `voiceProvider` is treated as
+an ElevenLabs assignment. A profile without an assignment inherits the Live
+default. System voice IDs depend on the Godot device and may be unavailable on
+another device.
 
 ### Optional full-message speech queue
 
@@ -217,17 +277,18 @@ sequence, so ordinary feed eviction does not lose queued speech.
 
 Full-message speech requests use a zero-based `chunk` field. The server chooses
 segments of up to 500 Unicode characters from verified channel events. A
-successful audio response includes `X-Buzz-Speech-More: true` when another segment
-remains. Only the next segment is accepted, and a generation attempt is consumed
-before contacting ElevenLabs. Failed synthesis is not automatically retried.
+successful response includes `X-Buzz-Speech-More: true` when another segment
+remains. Only the next segment is accepted, and an attempt is consumed before
+contacting a provider or returning system text. Failed synthesis is not
+automatically retried.
 The client never submits arbitrary replacement speech text.
 
 This opt-in queue retains up to 1,024 messages in memory while the speaker lease
 is active. It removes the 30-second speech expiry for those messages, but keeps
 existing event validation, size limits, authentication, one-speaker ownership,
-request cancellation, and duplicate protection. Muting, changing mode/key, lease
-expiry, or disconnect clears the queue. Overflow is reported explicitly.
-No React UI changes or new dependencies are required.
+request cancellation, and duplicate protection. Muting, changing mode, provider,
+or key, lease expiry, or disconnect clears the queue. Overflow is reported
+explicitly. No new dependencies are required.
 
 ### Remembered ElevenLabs key
 
@@ -243,8 +304,9 @@ A listener restores the saved key on startup. If no saved setting exists, the
 setting, removing the saved secret and suppressing that fallback. The browser's
 provider-key storage is independent and is not cleared by this action.
 Previously entered memory-only keys must be saved once through the updated UI.
-New Godot sessions automatically enable limited speech when a key is available;
-read-all mode stays off by default, and manual mute is respected for that session.
+New Godot sessions can enable limited speech for local and system voices without
+an ElevenLabs key. ElevenLabs speech still requires a key.
+Read-all mode stays off by default, and a saved manual mute is respected.
 
 ### Editable nameplates and Buzz metadata
 

@@ -22,7 +22,7 @@ func TestExportCommandOptionsAndHelp(t *testing.T) {
 			t.Fatalf("options %v: %v", args, err)
 		}
 	}
-	for _, args := range [][]string{{"unexpected"}, {"--output"}, {"--output="}, {"--output=a", "--output=b"}, {"--force"}} {
+	for _, args := range [][]string{{"unexpected"}, {"--output"}, {"--output="}, {"--output=a", "--output=b"}, {"--force"}, {"--json"}} {
 		if _, err := parseExportOptions(args); err == nil || strings.Contains(err.Error(), "pull only") {
 			t.Fatalf("invalid options %v returned %v", args, err)
 		}

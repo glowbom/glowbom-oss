@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -19,6 +20,7 @@ type buzzProfile struct {
 	Body              string `json:"body"`
 	Accessory         string `json:"accessory"`
 	VoiceID           string `json:"voiceId"`
+	VoiceProvider     string `json:"voiceProvider,omitempty"`
 	CustomLabel       string `json:"customLabel,omitempty"`
 	HideLabel         bool   `json:"hideLabel,omitempty"`
 	LabelLayout       string `json:"labelLayout,omitempty"`
@@ -132,7 +134,39 @@ func validBuzzProfile(p buzzProfile) bool {
 			}
 		}
 	}
-	return (p.Body == "" || profileID.MatchString(p.Body)) && (p.Accessory == "" || profileID.MatchString(p.Accessory)) && (p.VoiceID == "" || profileID.MatchString(p.VoiceID))
+	provider := p.VoiceProvider
+	if provider == "" && p.VoiceID != "" {
+		provider = "elevenlabs"
+	}
+	if provider != "" && !validVoiceSelection(provider, p.VoiceID) {
+		return false
+	}
+	return (p.Body == "" || profileID.MatchString(p.Body)) && (p.Accessory == "" || profileID.MatchString(p.Accessory))
+}
+
+func validLiveVoiceProvider(provider string) bool {
+	return provider == "elevenlabs" || provider == "local" || provider == "system"
+}
+
+func validVoiceSelection(provider, voiceID string) bool {
+	if !validLiveVoiceProvider(provider) {
+		return false
+	}
+	if voiceID == "" {
+		return true
+	}
+	if provider == "elevenlabs" {
+		return profileID.MatchString(voiceID)
+	}
+	if len(voiceID) > 256 || !utf8.ValidString(voiceID) || strings.TrimSpace(voiceID) != voiceID {
+		return false
+	}
+	for _, r := range voiceID {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }
 func (s *buzzSession) serveProfiles(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
@@ -191,7 +225,7 @@ func (s *buzzSession) serveProfiles(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"profile": req.Profile})
 }
 
-// Uses the session key and bounded requests. Never returns the key or raw provider errors.
+// Uses bounded requests and never returns keys or raw provider errors.
 func (s *buzzSession) serveVoices(w http.ResponseWriter, r *http.Request) {
 	if (r.URL.Path == "/buzz/session/voices" && r.Method != http.MethodGet) || (r.URL.Path == "/buzz/session/voice-preview" && r.Method != http.MethodPost) {
 		w.WriteHeader(405)
@@ -214,91 +248,185 @@ func (s *buzzSession) serveVoices(w http.ResponseWriter, r *http.Request) {
 	key := l.key
 	sessionCtx := l.ctx
 	l.mu.Unlock()
-	if key == "" {
-		w.WriteHeader(412)
-		return
+
+	provider := r.URL.Query().Get("provider")
+	if provider == "" {
+		provider = "elevenlabs"
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	stop := context.AfterFunc(sessionCtx, cancel)
-	defer stop()
 	if r.Method == http.MethodGet {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, elevenLabsBaseURL+"/v1/voices", nil)
-		req.Header.Set("xi-api-key", key)
-		client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		resp, err := client.Do(req)
-		if err != nil {
-			w.WriteHeader(502)
+		if !validLiveVoiceProvider(provider) || provider == "system" {
+			w.WriteHeader(400)
 			return
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			w.WriteHeader(502)
+		if provider == "elevenlabs" && key == "" {
+			w.WriteHeader(412)
 			return
 		}
-		var data struct {
-			Voices []struct {
-				ID   string `json:"voice_id"`
-				Name string `json:"name"`
-			} `json:"voices"`
-		}
-		if json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&data) != nil {
-			w.WriteHeader(502)
-			return
-		}
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		stop := context.AfterFunc(sessionCtx, cancel)
+		defer stop()
 		voices := []ElevenLabsVoiceOption{}
-		for _, v := range data.Voices {
-			if profileID.MatchString(v.ID) {
-				name := []rune(v.Name)
-				if len(name) > 120 {
-					name = name[:120]
-				}
-				voices = append(voices, ElevenLabsVoiceOption{VoiceID: v.ID, Name: string(name)})
+		if provider == "local" {
+			localVoices, err := fetchLiveLocalVoices(ctx, l.localClient)
+			if err != nil {
+				w.WriteHeader(503)
+				return
 			}
-			if len(voices) >= 1000 {
-				break
+			voices = localVoices
+		} else {
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, elevenLabsBaseURL+"/v1/voices", nil)
+			req.Header.Set("xi-api-key", key)
+			client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			resp, err := client.Do(req)
+			if err != nil {
+				w.WriteHeader(502)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				w.WriteHeader(502)
+				return
+			}
+			var data struct {
+				Voices []struct {
+					ID   string `json:"voice_id"`
+					Name string `json:"name"`
+				} `json:"voices"`
+			}
+			if json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&data) != nil {
+				w.WriteHeader(502)
+				return
+			}
+			for _, v := range data.Voices {
+				if profileID.MatchString(v.ID) {
+					name := []rune(v.Name)
+					if len(name) > 120 {
+						name = name[:120]
+					}
+					voices = append(voices, ElevenLabsVoiceOption{VoiceID: v.ID, Name: string(name)})
+				}
+				if len(voices) >= 1000 {
+					break
+				}
 			}
 		}
 		l.mu.Lock()
 		defer l.mu.Unlock()
-		if l.key != key || l.ctx.Err() != nil {
+		if l.ctx.Err() != nil || (provider == "elevenlabs" && l.key != key) {
 			w.WriteHeader(409)
 			return
 		}
-		l.voices = voices
+		if provider == "local" {
+			l.localVoices = voices
+		} else {
+			l.voices = voices
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"voices": voices})
 		return
 	}
-	var req struct {
-		VoiceID string `json:"voiceId"`
+	var input struct {
+		VoiceID       string `json:"voiceId"`
+		VoiceProvider string `json:"voiceProvider"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req) != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
 		w.WriteHeader(400)
 		return
 	}
+	if input.VoiceProvider != "" {
+		provider = input.VoiceProvider
+	}
+	if !validLiveVoiceProvider(provider) || provider == "system" || !validVoiceSelection(provider, input.VoiceID) {
+		w.WriteHeader(400)
+		return
+	}
+	if provider == "elevenlabs" && key == "" {
+		w.WriteHeader(412)
+		return
+	}
 	l.mu.Lock()
-	valid := req.VoiceID == "" || req.VoiceID == defaultElevenVoiceID
-	for _, v := range l.voices {
-		if v.VoiceID == req.VoiceID {
+	valid := input.VoiceID == "" || (provider == "elevenlabs" && input.VoiceID == defaultElevenVoiceID) || (provider == "local" && input.VoiceID == "default")
+	knownVoices := l.voices
+	if provider == "local" {
+		knownVoices = l.localVoices
+	}
+	for _, v := range knownVoices {
+		if v.VoiceID == input.VoiceID {
 			valid = true
+			break
 		}
 	}
-	if !valid || l.speaking || l.key != key {
+	if !valid || l.speaking || (provider == "elevenlabs" && l.key != key) {
 		l.mu.Unlock()
 		w.WriteHeader(409)
 		return
 	}
 	l.speaking = true
 	l.mu.Unlock()
-	audio, err := l.synth(ctx, key, "Hello, I'm ready to work with the team.", req.VoiceID)
+	timeout := 15 * time.Second
+	if provider == "local" {
+		timeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	stop := context.AfterFunc(sessionCtx, cancel)
+	defer stop()
+	var audio []byte
+	var err error
+	contentType := "audio/mpeg"
+	if provider == "local" {
+		contentType = "audio/wav"
+		audio, err = l.localSynth(ctx, "Hello, I'm ready to work with the team.", input.VoiceID)
+	} else {
+		audio, err = l.synth(ctx, key, "Hello, I'm ready to work with the team.", input.VoiceID)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.speaking = false
-	if err != nil || ctx.Err() != nil || l.key != key {
+	if err != nil || ctx.Err() != nil || (provider == "elevenlabs" && l.key != key) || l.ctx.Err() != nil {
 		w.WriteHeader(502)
 		return
 	}
-	w.Header().Set("Content-Type", "audio/mpeg")
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(audio)
+}
+
+func fetchLiveLocalVoices(ctx context.Context, client *http.Client) ([]ElevenLabsVoiceOption, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, voiceStudioBaseURL+"/v1/audio/voices", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, os.ErrInvalid
+	}
+	data, err := readLimitedLocalVoiceBody(resp.Body, localVoiceVoiceListLimit)
+	if err != nil {
+		return nil, err
+	}
+	voices, err := parseLocalVoices(data)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]ElevenLabsVoiceOption, 0, len(voices))
+	for _, voice := range voices {
+		if validVoiceSelection("local", voice.VoiceID) {
+			name := []rune(voice.Name)
+			if len(name) > 120 {
+				voice.Name = string(name[:120])
+			}
+			filtered = append(filtered, voice)
+		}
+		if len(filtered) >= 1000 {
+			break
+		}
+	}
+	return filtered, nil
 }

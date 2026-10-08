@@ -87,7 +87,7 @@ func TestImageGenerationSavesReferencesAndReportsCost(t *testing.T) {
 	if err != nil || !bytes.Equal(got, pngData) || calls != 1 || downloads != 1 {
 		t.Fatalf("wrong saved result: err=%v generation=%d downloads=%d", err, calls, downloads)
 	}
-	if text := terminal.String(); !strings.Contains(text, output) || !strings.Contains(text, "$0.0123") || strings.Contains(text, "private-") {
+	if text := terminal.String(); !strings.Contains(text, output) || !strings.Contains(text, "2.46 Glowbom credits") || strings.Contains(text, "private-") {
 		t.Fatalf("bad terminal output: %s", text)
 	}
 }
@@ -309,7 +309,7 @@ func TestImageGenerationReportsCostWithoutRegeneratingOnDownloadFailure(t *testi
 	client := &accountClient{config: accountConfig{APIURL: server.URL}, http: server.Client(), store: &memoryAccountStore{value: testCredentials()}, out: &terminal}
 	err := client.generateImage(context.Background(), opts)
 	files, _ := os.ReadDir(dir)
-	if err == nil || calls != 1 || len(files) != 0 || !strings.Contains(err.Error(), "saving failed") || !strings.Contains(terminal.String(), "$0.0300") {
+	if err == nil || calls != 1 || len(files) != 0 || !strings.Contains(err.Error(), "saving failed") || !strings.Contains(terminal.String(), "6 Glowbom credits") {
 		t.Fatalf("bad download failure: err=%v calls=%d files=%d output=%s", err, calls, len(files), terminal.String())
 	}
 	if strings.Contains(err.Error()+terminal.String(), "private-") {

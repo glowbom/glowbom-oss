@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,12 +11,12 @@ import (
 	"strings"
 )
 
-const nanoBanana2ModelID = "gemini-3.1-flash-image-preview"
+const nanoBanana2ModelID = "gemini-3.1-flash-image"
 
 // callGeminiImageGeneration calls Gemini image generation via generativelanguage.googleapis.com
 // Returns base64 data URI on success
-func callGeminiImageGeneration(prompt string, aspectRatio string, outputFormat string, apiKey string) (string, error) {
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", nanoBanana2ModelID, apiKey)
+func callGeminiImageGeneration(prompt string, aspectRatio string, outputFormat string, apiKey string, contexts ...context.Context) (string, error) {
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", nanoBanana2ModelID)
 
 	// Build request with text prompt
 	contents := []map[string]interface{}{
@@ -53,15 +54,15 @@ func callGeminiImageGeneration(prompt string, aspectRatio string, outputFormat s
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(imageRequestContext(contexts), "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
 
 	fmt.Println("[DEBUG] Calling Gemini image generation API...")
-	fmt.Printf("[DEBUG] Request body: %s\n", string(bodyBytes))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -69,7 +70,7 @@ func callGeminiImageGeneration(prompt string, aspectRatio string, outputFormat s
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 24<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
@@ -130,8 +131,8 @@ func callGeminiImageGeneration(prompt string, aspectRatio string, outputFormat s
 // The image is only sent to Gemini's API and immediately discarded after the request.
 //
 // Returns base64 data URI on success
-func callGeminiImageGenerationWithReference(prompt string, referenceImageBase64 string, aspectRatio string, outputFormat string, apiKey string) (string, error) {
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", nanoBanana2ModelID, apiKey)
+func callGeminiImageGenerationWithReference(prompt string, referenceImageBase64 string, aspectRatio string, outputFormat string, apiKey string, contexts ...context.Context) (string, error) {
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", nanoBanana2ModelID)
 
 	geminiAspectRatio := strings.TrimSpace(aspectRatio)
 
@@ -189,12 +190,13 @@ func callGeminiImageGenerationWithReference(prompt string, referenceImageBase64 
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(imageRequestContext(contexts), "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", apiKey)
 
 	fmt.Println("[DEBUG] Calling Gemini image generation API with reference image...")
 
@@ -204,7 +206,7 @@ func callGeminiImageGenerationWithReference(prompt string, referenceImageBase64 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 24<<20))
 	if err != nil {
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}

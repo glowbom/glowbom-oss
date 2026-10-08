@@ -60,9 +60,15 @@ func TestAccountJSONVerifiesStatusWithoutLeakingCredentials(t *testing.T) {
 			if got.Status != tc.status || got.SubscriptionStatus != tc.subscription {
 				t.Fatalf("unexpected status: %+v", got)
 			}
+			if tc.name == "premium with no credits" && (got.RemainingCredits == nil || *got.RemainingCredits != 0 || got.AllowanceCredits == nil || *got.AllowanceCredits != 4000) {
+				t.Fatal("credit conversion lost zero balance or allowance")
+			}
+			if tc.name == "free" && (got.RemainingCredits != nil || got.AllowanceCredits != nil) {
+				t.Fatal("missing balances must not become zero")
+			}
 			data, _ := json.Marshal(got)
 			if strings.Contains(string(data), "private-") || strings.Contains(string(data), "Token") || strings.Contains(string(data), "Usd") {
-				t.Fatal("status leaked credentials or balances")
+				t.Fatal("status leaked credentials or dollar amounts")
 			}
 			if got.Status == "signed_in" && got.UID != "owner" {
 				t.Fatal("verified identity missing")

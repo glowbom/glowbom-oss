@@ -1,5 +1,6 @@
 export type Appearance = 'system' | 'light' | 'dark';
 const key = 'glowbom_oss_appearance';
+const resultSketchKey = 'glowbom_oss_result_sketch_animation';
 
 export function parseAppearance(value: string | null): Appearance {
   return value === 'light' || value === 'dark' ? value : 'system';
@@ -15,4 +16,12 @@ export function saveAppearance(value: Appearance) {
 
 export function applyAppearance(value: Appearance, prefersDark: boolean) {
   document.documentElement.dataset.theme = value === 'system' ? (prefersDark ? 'dark' : 'light') : value;
+}
+
+export function readResultSketchAnimation(): boolean {
+  try { return localStorage.getItem(resultSketchKey) !== 'off'; } catch { return true; }
+}
+
+export function saveResultSketchAnimation(enabled: boolean): void {
+  try { localStorage.setItem(resultSketchKey, enabled ? 'on' : 'off'); } catch { /* Keep the current session usable. */ }
 }

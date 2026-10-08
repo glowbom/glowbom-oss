@@ -38,6 +38,34 @@ func TestInstalledStackEditorsUseKnownIDs(t *testing.T) {
 	}
 }
 
+func TestDiscoveredNativeFolderTools(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewFixture(t, root, "apple/Custom.xcodeproj/project.pbxproj", "project")
+	previewFixture(t, root, "android/build.gradle.kts", "plugins {}")
+	previewFixture(t, root, "android/app/build.gradle.kts", `plugins { id("com.android.application") }`)
+	defs, err := readPreviewDefinitions(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"apple", "android"} {
+		found := discoveredPreviewDefinition(root, defs, id)
+		if found == nil || found.Directory != id {
+			t.Fatalf("missing %s folder: %#v", id, found)
+		}
+	}
+	manager := newProjectPreviewManager()
+	defer manager.Close()
+	for _, id := range []string{"apple", "android"} {
+		_, status := previewCall(t, manager, previewRequest{Path: root, Target: id, Action: "tools"})
+		if status != http.StatusOK {
+			t.Fatalf("%s tools status %d", id, status)
+		}
+	}
+}
+
 func TestProjectRootToolsAndActionScope(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

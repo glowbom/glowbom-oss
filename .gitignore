@@ -8,24 +8,48 @@
 !.env.example
 *.log
 *.pem
+*.key
 *.p12
 *.pfx
 *.jks
 *.keystore
 *.mobileprovision
+*.provisionprofile
+*.sqlite*
+**/.aws/
+**/.ssh/
+**/credentials.json
+**/service-account*.json
+**/*-firebase-adminsdk-*.json
+**/accounts/*.json
 **/key.properties
+**/local.properties
+.claude/settings.local.json
 
 # JavaScript and Bun
 **/node_modules/
+**/.vite/
 web/dist/
 docs/build/
 docs/.react-router/
+docs/.source/
+
+# Python environments and caches
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+extras/kitten-tts/:memory:.ses
 
 # Go binaries and local backend output
 backend/glowbom-backend
 backend/server
 backend/saved_audio/
 backend/saved_images/
+backend/saved_videos/
 cli/glowbom
 cli/glowby
 cli/glowbom-*
@@ -33,7 +57,11 @@ cli/glowby-*
 
 # IDE and platform-generated files
 **/xcuserdata/
+**/*.xcuserstate
 **/.idea/
+project/android/.gradle/
+project/android/build/
+project/android/app/build/
 legacy/app/.dart_tool/
 legacy/app/.packages
 legacy/app/.flutter-plugins
@@ -48,3 +76,10 @@ legacy/app/macos/Pods/
 
 # Local archives
 project.zip
+
+# Private application and production service trees are outside this project
+/desktop/
+/flutter/
+/swiftui/
+/site/
+/cloudflare/

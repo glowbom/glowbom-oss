@@ -34,9 +34,14 @@ export interface PreviewTarget {
   revision?: string;
 }
 
+export function resultPreviewTarget(targets: PreviewTarget[]): PreviewTarget | undefined {
+  const canShow = (target: PreviewTarget) => stackIsInProject(target) && target.previewMode !== 'none' && (target.available || !!target.url);
+  return targets.find((target) => target.target === 'prototype' && canShow(target)) || targets.find(canShow);
+}
+
 export async function previewRequest(
   path: string,
-  action: 'inspect' | 'start' | 'stop' | 'save' | 'remove' | 'terminal' | 'folder',
+  action: 'inspect' | 'start' | 'stop' | 'save' | 'remove' | 'terminal' | 'folder' | 'browser',
   options: { target?: string; install?: boolean; id?: string; config?: PreviewDefinition; requireStackInstructions?: boolean; requireStackCatalog?: boolean } = {},
   signal?: AbortSignal,
 ): Promise<PreviewTarget[]> {
@@ -47,7 +52,11 @@ export async function previewRequest(
     body: JSON.stringify({ path, action, ...requestOptions }),
     signal,
   });
-  if (!response.ok) throw new Error((await response.text()).trim() || 'Preview request failed.');
+  if (!response.ok) {
+    const message = (await response.text()).trim();
+    if (action === 'browser' && message === 'Unknown preview action') throw new Error('Restart Glowbom OSS to open previews in your browser.');
+    throw new Error(message || 'Preview request failed.');
+  }
   const data = await response.json() as { targets: PreviewTarget[]; stackInstructionsSupported?: boolean; stackCatalogSupported?: boolean };
   if (requireStackCatalog && !data.stackCatalogSupported) throw new Error('Restart Glowbom OSS to enable the stack catalog and saved preview modes.');
   if (requireStackInstructions && !data.stackInstructionsSupported) throw new Error('Restart Glowbom OSS to enable saved stack instructions and build targets.');
@@ -81,6 +90,39 @@ export function parsePreviewCommand(text: string): string[] {
   if (escaped || quote) throw new Error('Close the quotes and escapes in the launch command.');
   if (started) args.push(current);
   return args;
+}
+
+const previewTargetKey = (projectPath: string) => `glowbom.previewTarget:${projectPath}`;
+
+export function readPreviewTarget(projectPath: string): string {
+  try { return localStorage.getItem(previewTargetKey(projectPath)) || ''; }
+  catch { return ''; }
+}
+
+export function writePreviewTarget(projectPath: string, target: string) {
+  try { localStorage.setItem(previewTargetKey(projectPath), target); }
+  catch { /* The open preview stays selected in this view. */ }
+}
+
+// Chat and the full workspace list every inspected stack, including one that is saved but not built yet.
+export function listedPreviewTargets(targets: PreviewTarget[]): PreviewTarget[] {
+  return targets;
+}
+
+// A stack is in the project when its folder exists, or when it was saved as a custom stack.
+export function stackIsInProject(target: PreviewTarget): boolean {
+  if (target.target.startsWith('custom-')) return true;
+  return target.reason !== 'Not built yet' && !target.reason?.startsWith('No ');
+}
+
+export function previewStackTitle(target: PreviewTarget): string {
+  if (target.target === 'apple' || target.preset === 'swiftui') return 'SwiftUI';
+  if (target.target === 'android' || target.preset === 'kotlin') return 'Kotlin + Compose';
+  if (target.target === 'prototype') return 'Prototype';
+  if (target.target === 'web') return 'Web';
+  const name = target.name.trim();
+  const label = name || target.target;
+  return label.length > 22 ? `${label.slice(0, 20)}…` : label;
 }
 
 export function formatPreviewCommand(args: string[]): string {

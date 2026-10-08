@@ -1,0 +1,245 @@
+---
+title: Try local AI
+description: Configure local backend models and the separate Desktop setup screens.
+---
+
+import { LocalAISetup } from "../../app/components/local-ai-setup";
+
+The open backend can use a local chat or coding model through OpenCode. The
+guided Local AI, chat, dictation, and speech screens below belong to the full
+Desktop client, not the public Agent + Buzz browser. OpenCode configuration
+and backend integrations remain available to other clients. Ollama runs the
+model on your computer.
+Most local models connect through OpenCode. The guided MiMo setup uses a
+lightweight chat connection directly to Ollama. An optional local voice service can read chat text
+aloud. Local image tools remain separate experiments. The setup helper can
+point you toward a useful first step.
+
+<LocalAISetup />
+
+## Connect a downloaded model in Glowbom
+
+Open **Settings → Tools → Local AI**, or choose **Set up local AI** at the
+bottom of the chat model menu. Keep Ollama running, choose a downloaded model,
+and click **Connect & test**. Finish active chats and builds first because
+connecting a new model reloads Glowbom's OpenCode server.
+
+Glowbom saves this connection separately from your existing OpenCode providers.
+It checks a short reply with tools disabled and no project files. MiMo chats
+directly with Ollama to keep coding-agent instructions out of its context.
+Glowbom sends recent messages, attached images, and a short project summary,
+not the full prototype or code. It requests an 8,192-token context for these
+chats without changing Ollama's global settings. Older messages stay visible
+but may be left out of the model request. Choose another model to discuss
+project code in detail. Other connected local models use OpenCode. **Ready for
+Chat** means that test succeeded. Choose the model under **Ollama (this computer)**
+in the model menu to start talking. MiMo remains **Chat only**.
+
+This flow connects models already downloaded in Ollama. It does not install
+Ollama or download model files. If you use an external OpenCode server, use the
+manual configuration below on that server. Glowbom's saved connections live in
+`~/.glowbom/local-ai.json` and apply to the OpenCode server it starts, not to
+separate OpenCode sessions you launch yourself.
+
+## Try MiMo 9B with Ollama
+
+This example starts on a Mac. For other computers, check the linked Ollama and
+OpenCode guides. A local model needs enough memory and may be slower or less
+reliable than a hosted model for some tasks.
+
+The linked [MiMo V2.6 9B Ollama model](https://ollama.com/maternion/mimo-v2.6:9b)
+is a community upload of [Xiaomi's 9B distillation](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B).
+The Ollama page lists a 6.5 GB download. That is the download size, not a
+promise about memory needed while it runs. Check the community upload and the
+upstream model page before downloading. Xiaomi's upstream card marks the
+model MIT licensed; the community upload has its own page and files to review.
+
+1. [Install Ollama](https://docs.ollama.com/quickstart) and open its app. Install
+   [OpenCode and Glowbom OSS](./glowbom-oss) if you have not done so already.
+2. Run the model in a terminal. The first run downloads its files:
+
+   ```bash
+   ollama run maternion/mimo-v2.6:9b
+   ```
+
+   Ask it a short question to confirm it responds. Type `/bye` to leave the
+   terminal chat. Keep the Ollama app running for the next steps.
+3. Use **Connect & test** in Glowbom as described above. For manual setup,
+   add the following Ollama provider to your existing OpenCode configuration.
+   OpenCode's [Ollama setup guide](https://opencode.ai/docs/providers/#ollama)
+   explains where `opencode.json` lives. If you already use other providers,
+   merge this `ollama` entry into your existing `provider` object rather than
+   replacing the file:
+
+   ```json
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "provider": {
+       "ollama": {
+         "npm": "@ai-sdk/openai-compatible",
+         "name": "Ollama (local)",
+         "options": {
+           "baseURL": "http://localhost:11434/v1"
+         },
+         "models": {
+           "maternion/mimo-v2.6:9b": {
+             "name": "MiMo V2.6 9B",
+             "attachment": true,
+             "modalities": {
+               "input": ["text", "image"],
+               "output": ["text"]
+             }
+           }
+         }
+       }
+     }
+   }
+   ```
+
+   For a custom Ollama model that can read images, `attachment: true` and
+   `modalities.input` let OpenCode pass image attachments to it. The MiMo tag
+   above lists vision on its Ollama page. For another model, check that the exact
+   tag supports images before using these fields. They cannot add image support
+   to a text-only model. After editing the configuration, restart OpenCode. In
+   Glowbom's model menu, click the **Refresh models** icon. If the local OpenCode
+   server still uses the old configuration, restart the Glowbom stack and refresh
+   the model list again.
+
+4. From your Glowbom OSS checkout, run `glowbom start`. Turn off **Build on
+   send**, then choose **Ollama (local)** and **MiMo V2.6 9B** from the chat
+   model menu. Ask a short question or attach a picture. MiMo is marked **Chat
+   only** because its Build responses through OpenCode can be incomplete.
+   Choose a different model for Draw or Build.
+5. If you choose another local model for Build, check
+   [Ollama's context length guide](https://docs.ollama.com/context-length).
+   OpenCode's coding workflow needs a longer context, which also uses more
+   memory. Review and test the result before using it in a real project.
+
+If the model does not appear after refreshing, check that Ollama is running, the model name in
+`opencode.json` matches `ollama list`, and `opencode models ollama` lists the
+configured model. `ollama ps`
+shows the loaded model and its allocated context after a request. The Ollama
+model page reports a large maximum context, but the memory your computer can
+actually allocate is the useful limit.
+
+## Local voice
+
+Glowbom can read chat aloud through either **KittenTTS Mini** or **VoiceStudio**.
+They are separate programs. Both use `127.0.0.1:3900`, so stop one before
+starting the other. You can install both, but Glowbom uses one running service
+at a time. Choose a setup path below, then finish in **Settings → Voice → Local
+voice**.
+
+### KittenTTS Mini
+
+This Glowbom OSS companion offers eight preset English voices and does not
+clone voices. It needs the Glowbom OSS source folder and Python 3.8 or later.
+On macOS or Linux:
+
+1. In a terminal, open the source folder that contains
+   `extras/kitten-tts/server.py`, then install the voice package:
+
+   ```bash
+   cd extras/kitten-tts
+   python3 -m venv .venv
+   .venv/bin/python -m pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+   ```
+
+2. Start the companion from that same folder:
+
+   ```bash
+   .venv/bin/python server.py
+   ```
+
+   The first start downloads the Mini model. Leave the terminal open until
+   you finish using local voice. Wait for `Local voice ready` before refreshing
+   voices in Glowbom. Press Ctrl+C to stop it.
+
+### VoiceStudio
+
+VoiceStudio is a separately installed desktop app with its own speech engines.
+It does not come with the KittenTTS Mini companion.
+[KittenTTS can also run inside VoiceStudio](https://github.com/debpalash/VoiceStudio/blob/main/docs/engines/kittentts.md);
+that uses VoiceStudio's service, not the Glowbom companion server.
+
+1. Get the current **Electron desktop app** from
+   [VoiceStudio's releases](https://github.com/debpalash/VoiceStudio/releases/latest)
+   and follow its [installation guide](https://github.com/debpalash/VoiceStudio#readme)
+   for your platform. Its current local backend does not support Intel Macs;
+   see the [macOS guide](https://github.com/debpalash/VoiceStudio/blob/main/docs/install/macos.md).
+2. Stop KittenTTS Mini if it is running, then open VoiceStudio. Complete its
+   local runtime setup. For a first connection test, use its default speech
+   engine and download the model when prompted. You can choose another engine
+   in **Model Catalogue → TTS**; [compare the engines](https://github.com/debpalash/VoiceStudio/blob/main/docs/feature-catalog.md)
+   and check their model terms before business use. Generate a short sample in
+   VoiceStudio. Its desktop app manages the local backend on port 3900. Keep
+   VoiceStudio open while using it in Glowbom.
+
+### Finish in Glowbom
+
+Open **Settings → Voice**, choose **Local voice**, then open the setup guide for
+the service you started. Click **Refresh voices**, select an available voice,
+and play a sample. The guide selection does not switch the running service.
+If no voices appear, check that your service is running on port 3900
+and that the other service is stopped. No ElevenLabs key is needed for local
+voice. Glowbom sends speech requests to the local service; check the chosen
+engine's behavior and terms before business use.
+
+KittenTTS Mini's [weights](https://huggingface.co/KittenML/kitten-tts-mini-0.8)
+and [library](https://github.com/KittenML/KittenTTS) are marked Apache-2.0.
+VoiceStudio has a separate [application license](https://github.com/debpalash/VoiceStudio/blob/main/LICENSE-NOTICE.md),
+and its engines and model weights can have different terms.
+
+## Explore image tools
+
+The chat and build model menu also includes other [connected AI agents](./connect-ai).
+Local image generation from the following tools is a separate experiment. You can
+add a file you create to your project yourself.
+
+| Tool | What to try | Terms to check |
+| --- | --- | --- |
+| [Bonsai Image 4B MLX](https://huggingface.co/prism-ml/bonsai-image-ternary-4B-mlx-2bit) | Generate an image on Apple Silicon using its upstream instructions, then add the file to a Glowbom project. | Its model card marks it Apache-2.0. Check the exact version and its dependencies before business use. |
+| [Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) | Explore image generation and editing for research or evaluation. | Its [current research license](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) requires separate permission for commercial use of the model. Do not use it to make assets for a commercial project without that permission. |
+
+## Check terms before publishing
+
+The app that runs a model, the model weights, and any other downloaded assets
+can have different licenses. Read the terms for the exact version you install,
+especially before business use. A model's license can restrict how you use the
+model without stating a blanket rule for every image it produces. Review
+generated work for other people's rights before publishing it.
+
+These links and license summaries were checked on September 26, 2026. Terms
+and model files can change, so use the linked source pages for the current terms.
+
+## Dictate a message locally
+
+Glowbom can turn microphone audio into an editable message using
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp). This follows the local
+Whisper approach used by [Omarchy's dictation](https://learn.omacom.io/2/the-omarchy-manual).
+Voice playback is a separate setting.
+
+Open **Local AI → Dictation** to check the engine and model. On a Mac with
+Homebrew, run:
+
+```sh
+brew install whisper.cpp
+mkdir -p ~/.glowbom/models/whisper
+curl --fail --location https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin -o ~/.glowbom/models/whisper/ggml-base.en.bin
+```
+
+The English model downloads about 148 MB. Choose **Check again**, close settings,
+and click the microphone beside Send. Allow microphone access when asked.
+Click **Done** to transcribe, or **Cancel** to discard the recording. Recording
+stops automatically after one minute. Review the draft before sending it.
+
+For Linux or a custom installation, follow the whisper.cpp installation guide.
+Set `GLOWBOM_WHISPER_BIN` to the executable path and `GLOWBOM_WHISPER_MODEL` to
+a compatible GGML Whisper model path before starting Glowbom. Dictation currently
+uses English transcription. Ollama and a cloud API key are not required.
+
+Audio stays on the computer running Glowbom's backend. Temporary audio and
+transcript files are removed after transcription, including failures. Dictated
+text becomes part of the draft and is sent to the selected chat model only when
+you choose Send. If access is denied, enable the microphone in your browser or
+system settings and try again. Browsers need localhost or HTTPS for recording.

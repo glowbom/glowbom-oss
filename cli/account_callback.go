@@ -101,8 +101,8 @@ func (c *loginCallback) serve(ctx context.Context, exchange func(string) error) 
 }
 
 func (c *loginCallback) close() {
+	defer c.listener.Close()
 	if c.server == nil {
-		_ = c.listener.Close()
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -140,6 +140,13 @@ body{margin:0;min-height:100vh;min-height:100svh;display:flex;align-items:center
 main{width:100%%;max-width:440px;text-align:center}header{height:46px;margin:0 auto 48px}header img{display:block;width:156px;height:46px;object-fit:contain;margin:auto}
 .status{width:64px;height:64px;margin:0 auto 28px;display:grid;place-items:center;border-radius:20px;background:#e6f5eb;color:#087f5b}.status svg{width:32px;height:32px}
 h1{margin:0 0 14px;font-size:30px;font-weight:700;line-height:1.2;overflow-wrap:break-word}p{margin:0}p+p{margin-top:8px}code{font-size:inherit}footer{margin-top:44px;color:#62756b;font-size:13px}
+@media(prefers-color-scheme:dark){
+:root{color-scheme:dark}
+body{background:#101010;color:#f2f2f2}
+header img{filter:brightness(0) invert(1)}
+.status{background:#262626;color:#ffffff}
+footer{color:#aaaaaa}
+}
 </style></head><body><main><header><img src="data:image/svg+xml;base64,%s" width="156" height="46" alt="Glowbom"></header>
 <div class="status" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">%s</svg></div>
 <h1>%s</h1><p>%s</p><p>%s</p><footer>Sketch to software.</footer>

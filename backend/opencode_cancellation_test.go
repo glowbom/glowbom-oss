@@ -73,6 +73,7 @@ func TestOpenCodeCompletedStreamDoesNotAbortWorker(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/event" {
 			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"type\":\"message.updated\",\"properties\":{\"info\":{\"id\":\"assistant\",\"role\":\"assistant\",\"sessionID\":\"session-test\",\"parts\":[{\"type\":\"text\",\"text\":\"Build done.\"}]}}}\n\n")
 			fmt.Fprint(w, "data: {\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"session-test\"}}\n\n")
 			return
 		}
@@ -99,5 +100,25 @@ func TestOpenCodeCompletedStreamDoesNotAbortWorker(t *testing.T) {
 	case <-aborted:
 		t.Fatal("completed session aborted when HTTP request ended")
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestOpenCodeIdleBeforeAgentActivityDoesNotCompleteBuild(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/event" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"session-test\"}}\n\n")
+	}))
+	defer server.Close()
+	driver := &OpenCodeDriver{client: opencode.NewClient(option.WithBaseURL(server.URL))}
+	dispatched := make(chan struct{})
+	close(dispatched)
+	w := httptest.NewRecorder()
+	completed, _, hadActivity, _ := driver.streamEventsAndWaitForCompletion(context.Background(), w, w, "/test-project", "session-test", dispatched)
+	if completed || hadActivity {
+		t.Fatal("idle before agent activity completed the build")
 	}
 }

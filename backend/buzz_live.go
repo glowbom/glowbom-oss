@@ -32,35 +32,40 @@ type buzzMessage struct {
 }
 
 type buzzLive struct {
-	mu             sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
-	status         string
-	messages       []buzzMessage
-	seen           map[string]int64
-	sequence       uint64
-	keyPath        string
-	key            string
-	owner          string
-	enabledAfter   uint64
-	lease          time.Time
-	speechCtx      context.Context
-	speechCancel   context.CancelFunc
-	attempted      map[string]bool
-	speaking       bool
-	readAll        bool
-	pendingSpeech  map[string]buzzMessage
-	nextChunk      map[string]int
-	speechOverflow uint64
+	mu                   sync.Mutex
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	status               string
+	messages             []buzzMessage
+	seen                 map[string]int64
+	sequence             uint64
+	keyPath              string
+	key                  string
+	owner                string
+	enabledAfter         uint64
+	lease                time.Time
+	speechCtx            context.Context
+	speechCancel         context.CancelFunc
+	attempted            map[string]bool
+	speaking             bool
+	readAll              bool
+	pendingSpeech        map[string]buzzMessage
+	nextChunk            map[string]int
+	speechOverflow       uint64
+	defaultVoiceProvider string
+	defaultVoiceID       string
 	// Injected only by tests. Production always uses the fixed ElevenLabs origin.
-	voices []ElevenLabsVoiceOption
-	dialer *websocket.Dialer
-	synth  func(context.Context, string, string, string) ([]byte, error)
+	voices      []ElevenLabsVoiceOption
+	localVoices []ElevenLabsVoiceOption
+	localClient *http.Client
+	dialer      *websocket.Dialer
+	synth       func(context.Context, string, string, string) ([]byte, error)
+	localSynth  func(context.Context, string, string) ([]byte, error)
 }
 
 func newBuzzLive() *buzzLive {
 	ctx, cancel := context.WithCancel(context.Background())
-	l := &buzzLive{ctx: ctx, cancel: cancel, status: "connecting", messages: []buzzMessage{}, seen: map[string]int64{}, attempted: map[string]bool{}, key: strings.TrimSpace(os.Getenv("ELEVENLABS_API_KEY")), synth: buzzSynthesize, dialer: &websocket.Dialer{HandshakeTimeout: 10 * time.Second}}
+	l := &buzzLive{ctx: ctx, cancel: cancel, status: "connecting", messages: []buzzMessage{}, seen: map[string]int64{}, attempted: map[string]bool{}, key: strings.TrimSpace(os.Getenv("ELEVENLABS_API_KEY")), synth: buzzSynthesize, localSynth: buzzSynthesizeLocal, localClient: localVoiceHTTPClient, dialer: &websocket.Dialer{HandshakeTimeout: 10 * time.Second}}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -85,6 +90,8 @@ func (l *buzzLive) muteLocked() {
 	}
 	l.owner = ""
 	l.readAll = false
+	l.defaultVoiceProvider = ""
+	l.defaultVoiceID = ""
 	l.pendingSpeech = nil
 	l.nextChunk = nil
 	l.speechOverflow = 0
@@ -133,8 +140,16 @@ func (s *buzzSession) serveLive(w http.ResponseWriter, r *http.Request) {
 			l.muteLocked()
 		}
 		client := r.URL.Query().Get("clientId")
+		requestedProvider := r.URL.Query().Get("defaultVoiceProvider")
+		if requestedProvider != "" && !validLiveVoiceProvider(requestedProvider) {
+			w.WriteHeader(400)
+			return
+		}
 		if client != "" && client == l.owner {
-			l.lease = time.Now().Add(15 * time.Second)
+			lease := time.Now().Add(15 * time.Second)
+			if lease.After(l.lease) {
+				l.lease = lease
+			}
 		}
 		messages := l.messages
 		if client == l.owner && l.readAll {
@@ -151,17 +166,23 @@ func (s *buzzSession) serveLive(w http.ResponseWriter, r *http.Request) {
 			}
 			sort.Slice(messages, func(i, j int) bool { return messages[i].Sequence < messages[j].Sequence })
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"readAllSupported": true, "readAll": l.readAll && client == l.owner, "speechOverflow": l.speechOverflow, "status": l.status, "messages": messages, "sequence": l.sequence, "speechAvailable": l.key != "", "speakingEnabled": client != "" && l.owner == client})
+		speechAvailable := l.key != ""
+		if requestedProvider == "local" || requestedProvider == "system" {
+			speechAvailable = true
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"readAllSupported": true, "readAll": l.readAll && client == l.owner, "speechOverflow": l.speechOverflow, "status": l.status, "messages": messages, "sequence": l.sequence, "speechAvailable": speechAvailable, "speakingEnabled": client != "" && l.owner == client})
 		return
 	}
 	var req struct {
-		ClientID string  `json:"clientId"`
-		Enabled  *bool   `json:"enabled"`
-		Key      *string `json:"key"`
-		Remember bool    `json:"remember"`
-		EventID  string  `json:"eventId"`
-		ReadAll  bool    `json:"readAll"`
-		Chunk    int     `json:"chunk"`
+		ClientID             string  `json:"clientId"`
+		Enabled              *bool   `json:"enabled"`
+		Key                  *string `json:"key"`
+		Remember             bool    `json:"remember"`
+		EventID              string  `json:"eventId"`
+		ReadAll              bool    `json:"readAll"`
+		Chunk                int     `json:"chunk"`
+		DefaultVoiceProvider string  `json:"defaultVoiceProvider"`
+		DefaultVoiceID       string  `json:"defaultVoiceId"`
 	}
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	d.DisallowUnknownFields()
@@ -215,26 +236,39 @@ func (s *buzzSession) serveLive(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(409)
 			return
 		}
-		l.muteLocked()
 		if *req.Enabled {
-			if l.key == "" {
+			provider := req.DefaultVoiceProvider
+			if provider == "" {
+				provider = "elevenlabs"
+			}
+			if !validVoiceSelection(provider, req.DefaultVoiceID) {
+				l.mu.Unlock()
+				w.WriteHeader(400)
+				return
+			}
+			if provider == "elevenlabs" && l.key == "" {
 				l.mu.Unlock()
 				w.WriteHeader(412)
 				return
 			}
+			l.muteLocked()
 			l.owner = req.ClientID
+			l.defaultVoiceProvider = provider
+			l.defaultVoiceID = req.DefaultVoiceID
 			l.lease = time.Now().Add(15 * time.Second)
 			l.enabledAfter = l.sequence
 			l.readAll = req.ReadAll
 			l.pendingSpeech = make(map[string]buzzMessage)
 			l.nextChunk = make(map[string]int)
 			l.speechCtx, l.speechCancel = context.WithCancel(l.ctx)
+		} else {
+			l.muteLocked()
 		}
 		l.mu.Unlock()
 		w.WriteHeader(204)
 		return
 	}
-	if l.owner != req.ClientID || l.key == "" {
+	if l.owner != req.ClientID {
 		l.mu.Unlock()
 		w.WriteHeader(409)
 		return
@@ -282,27 +316,68 @@ func (s *buzzSession) serveLive(w http.ResponseWriter, r *http.Request) {
 		delete(l.nextChunk, req.EventID)
 	}
 	l.speaking = true
-	ctx, cancel := context.WithTimeout(l.speechCtx, 20*time.Second)
-	stop := context.AfterFunc(r.Context(), cancel)
 	key := l.key
 	text := chunks[index]
+	provider := l.defaultVoiceProvider
+	voiceID := l.defaultVoiceID
+	speechCtx := l.speechCtx
 	l.mu.Unlock()
-	defer cancel()
-	defer stop()
-	voiceID := ""
 	s.mu.Lock()
 	store := s.profiles
 	s.mu.Unlock()
 	if store != nil {
 		if profiles, err := store.all(); err == nil {
-			voiceID = profiles[message.Pubkey].VoiceID
+			profile := profiles[message.Pubkey]
+			if profile.VoiceProvider != "" {
+				provider, voiceID = profile.VoiceProvider, profile.VoiceID
+			} else if profile.VoiceID != "" {
+				// A profile saved before providers existed names an ElevenLabs voice.
+				provider, voiceID = "elevenlabs", profile.VoiceID
+			}
 		}
 	}
-	audio, err := l.synth(ctx, key, text, voiceID)
+	timeout := 20 * time.Second
+	if provider == "local" {
+		timeout = 2 * time.Minute
+		l.mu.Lock()
+		if l.owner == req.ClientID && l.speechCtx == speechCtx {
+			l.lease = time.Now().Add(timeout + 5*time.Second)
+		}
+		l.mu.Unlock()
+	}
+	ctx, cancel := context.WithTimeout(speechCtx, timeout)
+	stop := context.AfterFunc(r.Context(), cancel)
+	defer cancel()
+	defer stop()
+	var audio []byte
+	var err error
+	contentType := "audio/mpeg"
+	switch provider {
+	case "elevenlabs":
+		if key == "" {
+			err = errors.New("speech unavailable")
+		} else {
+			audio, err = l.synth(ctx, key, text, voiceID)
+		}
+	case "local":
+		contentType = "audio/wav"
+		audio, err = l.localSynth(ctx, text, voiceID)
+	case "system":
+		contentType = "application/json"
+		audio, err = json.Marshal(map[string]string{"text": text, "voiceId": voiceID})
+	default:
+		err = errors.New("invalid voice provider")
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.speaking = false
-	if err != nil || ctx.Err() != nil || l.owner != req.ClientID || time.Now().After(l.lease) {
+	activeRequest := l.speechCtx == speechCtx
+	if activeRequest {
+		l.speaking = false
+	}
+	if provider == "local" && activeRequest && l.owner == req.ClientID {
+		l.lease = time.Now().Add(15 * time.Second)
+	}
+	if err != nil || ctx.Err() != nil || !activeRequest || l.owner != req.ClientID || time.Now().After(l.lease) {
 		delete(l.pendingSpeech, req.EventID)
 		delete(l.nextChunk, req.EventID)
 		l.attempted[req.EventID] = true
@@ -312,7 +387,7 @@ func (s *buzzSession) serveLive(w http.ResponseWriter, r *http.Request) {
 	if more {
 		w.Header().Set("X-Buzz-Speech-More", "true")
 	}
-	w.Header().Set("Content-Type", "audio/mpeg")
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(audio)
 }
@@ -346,6 +421,42 @@ func buzzSynthesize(ctx context.Context, key, text, voiceID string) ([]byte, err
 		return nil, errors.New("invalid audio")
 	}
 	return data, nil
+}
+
+// The local service stays on the fixed loopback address. Live returns raw WAV to Godot.
+func buzzSynthesizeLocal(ctx context.Context, text, voiceID string) ([]byte, error) {
+	return buzzSynthesizeLocalWithClient(ctx, localVoiceHTTPClient, text, voiceID)
+}
+
+func buzzSynthesizeLocalWithClient(ctx context.Context, client *http.Client, text, voiceID string) ([]byte, error) {
+	if !validVoiceSelection("local", voiceID) {
+		return nil, errors.New("invalid voice")
+	}
+	if voiceID == "" {
+		voiceID = "default"
+	}
+	body, _ := json.Marshal(map[string]string{
+		"model": voiceStudioSpeechModel, "input": text, "voice": voiceID, "response_format": "wav",
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, voiceStudioBaseURL+"/v1/audio/speech", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "audio/wav")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.New("local speech unavailable")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("local speech unavailable")
+	}
+	audio, err := readLimitedLocalVoiceBody(resp.Body, localVoiceResponseLimit)
+	if err != nil || len(audio) < 12 || string(audio[:4]) != "RIFF" || string(audio[8:12]) != "WAVE" {
+		return nil, errors.New("invalid local audio")
+	}
+	return audio, nil
 }
 
 func (l *buzzLive) accept(evt nostr.Event, channel string, start int64, live bool) {

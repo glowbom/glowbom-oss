@@ -1,0 +1,127 @@
+---
+title: Connect AI
+description: Connect coding agents and models through CLI logins and optional ACP connections.
+---
+
+The open backend uses AI connected on the computer running Desktop or Glowbom
+OSS. The model menu, Chat/Draw controls, Connect AI screen, and Tools screens
+below describe the full Desktop client. The public Agent + Buzz browser has
+its own agent settings and does not include every Desktop screen.
+Open **Connect AI** from the model menu or **Settings → Connect AI**. Install an
+agent, sign in with its own account, then refresh the model menu.
+
+## Choose a connection
+
+| Connection | Use in Glowbom | Setup |
+| --- | --- | --- |
+| OpenCode | Chat, Draw, Project Book, and Build with suitable connected models. | [Glowbom OSS setup](./glowbom-oss) and [OpenCode providers](https://opencode.ai/docs/providers/). |
+| Codex | Chat, Draw, Project Book, and Build with supported models. | [Codex CLI](https://developers.openai.com/codex/cli). Sign-in controls are also in Tools. |
+| Cursor | Build in your project folder. | Install and sign in to the CLI below. |
+| Claude Code | Build in your project folder. | [Claude Code setup](https://code.claude.com/docs/en/setup). |
+| ACP agents | Build through a manually saved connection. | Configure the agent below. |
+
+Chat discusses an idea. Draw makes a browser prototype. Build lets an agent
+change project files and run commands. Selecting Cursor, Claude Code, or ACP
+switches the composer to Build. For models running on your computer, see
+[Try local AI](./local-ai).
+
+## Connect Cursor
+
+Follow [Cursor's CLI installation guide](https://cursor.com/docs/cli/installation).
+On macOS, Linux, or Windows through WSL:
+
+```sh
+curl https://cursor.com/install -fsS | bash
+```
+
+With the `cursor-agent` command Glowbom detects, sign in and check the models:
+
+```sh
+cursor-agent login
+cursor-agent status
+cursor-agent models
+```
+
+Finish the browser sign-in. Installing the Cursor editor alone is not enough.
+**Ready** in Tools means Glowbom found the executable; it does not confirm
+account access. Glowbom only lists Cursor models when the CLI's `models`
+command succeeds.
+
+After signing in, allow 45 seconds for the model cache to expire, then choose
+**Refresh models**. The **Cursor → Add models** action exposes more models
+reported by your account. If the entire Cursor group is missing, first check
+CLI login and model discovery.
+
+Cursor's current [authentication](https://cursor.com/docs/cli/reference/authentication)
+and [command reference](https://cursor.com/docs/cli/reference/parameters) use
+`agent`. If your installation provides only that command, run
+`agent login`, `agent status`, and `agent models`. For the OSS terminal
+workflow, find its path with `command -v agent`, set
+`GLOWBOM_CURSOR_BIN` to that full path, then launch `glowbom start` from the
+same terminal. This override applies to that OSS launch.
+
+## Add an ACP agent
+
+Agent Client Protocol (ACP) connects coding agents to other tools. Glowbom
+can save up to three installed agents, including custom agents.
+
+1. Install the agent and complete its own sign-in or provider setup.
+2. Open **Account → Tools → ACP connections** and expand an empty slot.
+3. Enter a name, executable, and ACP launch arguments, one argument per line.
+4. Choose **Test connection**. It starts the agent in a temporary folder,
+   checks ACP version 1 and session setup, and reports image support and models.
+5. Choose a reported **Model**, or keep **Use agent default**, then **Save**.
+6. Choose the saved connection in the **Build** model menu.
+
+| Agent | Executable | Arguments |
+| --- | --- | --- |
+| [Cline](https://docs.cline.bot/usage/acp) | `cline` | `--acp` |
+| [Kilo](https://kilo.ai/docs/code-with-ai/platforms/cli-reference#kilo-acp) | `kilo` | `acp` |
+| [Goose](https://goose-docs.ai/docs/gdk/acp/) | `goose` | `acp` |
+| [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/) | `hermes` | `acp` |
+| [OpenClaw](https://docs.openclaw.ai/cli/acp) | `openclaw` | `acp` |
+
+For Cline, install with `npm install -g cline`, then run `cline auth` before
+testing. Choose its model in Glowbom's connection settings; do not assume
+its terminal selection is the ACP default. Test again after changing the
+agent's provider or account.
+
+For Goose, [install its CLI](https://goose-docs.ai/docs/getting-started/installation/)
+and run `goose configure` to save your provider and model. Enable its **Developer**
+extension for file edits and commands. Glowbom uses Goose's saved setup; provider
+API keys and `GOOSE_*` variables from Glowbom's environment are not passed through.
+On macOS, check for a Keychain prompt if connecting stalls. Use **Test connection**,
+then try a small Build to check your Goose version and provider.
+
+For Hermes, install with ACP support, configure its provider and model with
+`hermes model`, then run `hermes acp --check`. Minimal installations may need
+the optional ACP dependency described in its guide. Hermes uses its own saved
+credentials and tools.
+
+OpenClaw's ACP command bridges to a running **Gateway**. Complete OpenClaw's
+setup, start the Gateway, and check that its agent can work in your project
+folder. Model selection stays in the Gateway. Tool details and approval relay
+are limited by the bridge. Keep Gateway credentials in OpenClaw's saved setup,
+outside Glowbom's argument fields.
+
+These commands expose ACP; a successful connection test is the first check.
+Try a small build before relying on an agent for your project.
+
+Use a full executable path if Glowbom cannot find the program. Keep shell
+quotes, commands, and credentials out of these fields. **Save** does not start
+the agent. **Test connection** does not verify a build or every agent feature.
+An unavailable or rejected saved model stops the build with an error.
+
+## Review permissions and limits
+
+ACP builds use Glowbom's progress, permission, Stop, and history controls.
+**Allow for this build** approves a named tool when the agent offers that
+choice. **Allow all for this build** starts off and approves supported tool
+requests until the build ends. Questions and paid-media reviews still need
+an answer. Cursor already runs tools automatically under its CLI deny rules.
+
+ACP agents must provide their own file and command tools. Image input and
+conversation restoration depend on the agent's capabilities. ACP does not
+add Chat, Draw, or Project Book model support. Compatible builds can also
+be started from the [companion preview](./companion). Setup and credentials
+stay on Desktop; messages and media go to the chosen provider through it.

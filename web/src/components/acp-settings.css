@@ -1,0 +1,12 @@
+.acp-settings { display: grid; gap: 10px; min-width: 0; }
+.acp-settings h3 { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; font-size: 14px; }
+.acp-settings h3 span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.acp-connection { min-width: 0; border: 1px solid var(--border); border-radius: 12px; }
+.acp-connection summary { cursor: pointer; padding: 12px 14px; font-size: 13px; overflow-wrap: anywhere; }
+.acp-connection summary span { margin-left: 10px; color: var(--muted); font-size: 11px; }
+.acp-connection-fields { display: grid; gap: 10px; padding: 0 14px 14px; }
+.acp-connection-fields label { min-width: 0; }
+.acp-connection-fields input, .acp-connection-fields textarea, .acp-connection-fields select { box-sizing: border-box; width: 100%; }
+.voice-settings .acp-connection-fields textarea { min-width: 0; resize: vertical; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
+.acp-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-settings .acp-connection-actions button { padding: 7px 10px; font-size: 12px; }

@@ -76,8 +76,8 @@ export function BuzzMembersPanel({ elevenLabsKey = '' }: { elevenLabsKey?: strin
       if (nextAction === 'check') setError((previous) => previous.startsWith('Connection status unavailable:') ? '' : previous);
     } catch (cause) {
       if (controller.signal.aborted) return;
-      const message = cause instanceof TypeError ? 'Could not reach the local backend. Check that OSS is running.'
-        : cause instanceof Error ? cause.message : 'The Buzz request failed.';
+      const message = cause instanceof TypeError ? 'Could not reach Glowbom. Check that the local backend is running.'
+        : cause instanceof Error ? cause.message : 'The connection request failed.';
       let recovered = false;
       // A request may fail after the backend changed state. Read it back before
       // offering Connect again, including conflicts with another OSS window.
@@ -127,57 +127,80 @@ export function BuzzMembersPanel({ elevenLabsKey = '' }: { elevenLabsKey?: strin
       : connected ? 'Connected' : connecting ? 'Connecting...' : 'Disconnected';
 
   return (
-    <details className="buzz-panel" onToggle={(event) => { if (!event.currentTarget.open) clearCredentials(); }}>
-      <summary>Buzz connection <span className="meta">Preview</span></summary>
-      <p className={`buzz-connection-status ${connected ? 'ok' : ''}`} role="status">{status}</p>
-      <p className="meta">Connect one channel for OSS and Glowbom Live. Members are a snapshot; new messages can appear and speak in Glowbom Live.</p>
-      <form onSubmit={connect} autoComplete="off">
-        <label className="field-label" htmlFor="buzz-relay">Relay URL</label>
-        <input className="input" id="buzz-relay" type="url" placeholder="https://your-community.example" required value={relayUrl} disabled={busy || connected || !available} onChange={(event) => setRelayUrl(event.target.value)} />
-        <label className="field-label" htmlFor="buzz-channel">Channel ID</label>
-        <div className="row">
-          <input className="input buzz-channel-input" id="buzz-channel" placeholder="Channel UUID" required value={editingChannel ? channelId : shortenBuzzId(channelId)} disabled={busy || connected || !available} onFocus={() => setEditingChannel(true)} onBlur={() => setEditingChannel(false)} onChange={(event) => setChannelId(event.target.value)} />
-          {channelId && <button className="button secondary" type="button" onClick={() => void copyId(channelId, 'Channel ID')}>Copy channel ID</button>}
+    <section className="glowbom-live-connection" aria-label="Live connection">
+      <div className="glowbom-live-status-row">
+        <p className="glowbom-live-status" role="status"><span className={`glowbom-live-status-dot${connected ? ' is-connected' : ''}${busy ? ' is-busy' : ''}`} aria-hidden="true" />{status}</p>
+        <button className="glowbom-live-icon" type="button" aria-label="Refresh connection status" title="Refresh connection status" disabled={busy} onClick={() => void callSession('check')}><RefreshIcon /></button>
+      </div>
+      <form className="glowbom-live-form" onSubmit={connect} autoComplete="off">
+        <label htmlFor="buzz-relay">Server URL</label>
+        <input id="buzz-relay" type="url" placeholder="https://your-community.example" required value={relayUrl} disabled={busy || connected || !available} onChange={(event) => setRelayUrl(event.target.value)} />
+        <label htmlFor="buzz-channel">Channel ID</label>
+        <div className="glowbom-live-input-row">
+          <input id="buzz-channel" placeholder="Channel UUID" required value={editingChannel ? channelId : shortenBuzzId(channelId)} disabled={busy || connected || !available} onFocus={() => setEditingChannel(true)} onBlur={() => setEditingChannel(false)} onChange={(event) => setChannelId(event.target.value)} />
+          {channelId && <button className="glowbom-live-icon" type="button" aria-label="Copy channel ID" title="Copy channel ID" onClick={() => void copyId(channelId, 'Channel ID')}><CopyIcon /></button>}
         </div>
-        <p className="meta">Relay URL and channel ID are remembered in this browser.</p>
+        {!connected && <p className="glowbom-live-hint">Server and channel are remembered on this device.</p>}
         {available && !connected && !connecting && <>
-          <label className="field-label" htmlFor="buzz-key">Identity private key</label>
-          <input className="input" id="buzz-key" type="password" autoComplete="off" spellCheck={false} placeholder="Hex or nsec" required value={privateKey} disabled={busy} onChange={(event) => setPrivateKey(event.target.value)} />
-          <label className="field-label" htmlFor="buzz-auth-tag">Owner-auth tag (optional)</label>
-          <input className="input" id="buzz-auth-tag" type="password" autoComplete="off" spellCheck={false} placeholder="JSON auth tag for an agent identity" value={authTag} disabled={busy} onChange={(event) => setAuthTag(event.target.value)} />
+          <label htmlFor="buzz-key">Identity private key</label>
+          <input id="buzz-key" type="password" autoComplete="off" spellCheck={false} placeholder="Hex or nsec" required value={privateKey} disabled={busy} onChange={(event) => setPrivateKey(event.target.value)} />
+          <details className="glowbom-live-disclosure glowbom-live-advanced">
+            <summary>Advanced</summary>
+            <div className="glowbom-live-disclosure-body">
+              <label htmlFor="buzz-auth-tag">Owner-auth tag <span className="glowbom-live-optional">Optional</span></label>
+              <input id="buzz-auth-tag" type="password" autoComplete="off" spellCheck={false} placeholder="JSON auth tag for an agent identity" value={authTag} disabled={busy} onChange={(event) => setAuthTag(event.target.value)} />
+            </div>
+          </details>
         </>}
-        <p className="meta">{connected
-          ? 'Credentials stay in local backend memory until Disconnect or backend shutdown. Closing this page does not disconnect.'
-          : available ? 'Your key is sent to the local backend and cleared from this form. It is not saved to disk.'
-            : 'Check the local backend before connecting. No connection state has been confirmed.'}</p>
-        <div className="row">
-          {connected && <button className="button secondary" type="button" disabled={action === 'disconnect'} onClick={() => void copyToken()}>Copy local backend access token</button>}
+        <p className="glowbom-live-hint">{connected
+          ? 'Closing settings keeps you connected. Credentials stay in local backend memory until you disconnect or quit the backend.'
+          : available ? 'Your private key is cleared from this form when you connect and is not saved to disk.'
+            : 'Refresh to check the local backend before connecting.'}</p>
+        <div className="glowbom-live-actions">
           {connected || connecting || action === 'connect'
-            ? <button className="button secondary" type="button" disabled={action === 'disconnect'} onClick={() => { clearCredentials(); void callSession('disconnect'); }}>{action === 'disconnect' ? 'Disconnecting...' : 'Disconnect'}</button>
-            : available ? <button className="button secondary" type="submit" disabled={busy}>Connect</button>
-              : <button className="button secondary" type="button" disabled={busy} onClick={() => void callSession('check')}>{busy ? 'Checking...' : 'Check connection'}</button>}
+            ? <button type="button" disabled={action === 'disconnect'} onClick={() => { clearCredentials(); void callSession('disconnect'); }}>{action === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}</button>
+            : available && <button className="glowbom-live-primary" type="submit" disabled={busy}>Connect</button>}
         </div>
       </form>
-      {connected && <p className="meta">Copy this token into Glowbom Live on this computer. It grants access to the local OSS backend and is separate from your Buzz private key.</p>}
-      {copyMessage && <p className="meta" role="status">{copyMessage}</p>}
-      {error && <p className="error-inline" role="alert">{error}</p>}
-      {connected && session && <div>
-        <BuzzLiveSettings key={session.channelId} existingKey={elevenLabsKey} />
-        <div className="row buzz-roster-heading">
-          <p className="meta">{session.members.length} channel members</p>
-          <button className="button secondary" type="button" disabled={busy} onClick={() => void callSession('refresh')}>{action === 'refresh' || session.connecting ? 'Refreshing...' : 'Refresh members'}</button>
-        </div>
-        {!session.members.length && <p className="meta">No roster returned. Check the channel ID and access for this identity.</p>}
-        <ul className="buzz-members">
-          {session.members.map((member) => <li key={member.pubkey}>
-            <BuzzAvatar key={`${session.channelId}:${avatarRevision}`} member={member} relayUrl={session.relayUrl} />
-            <div>
-              <strong>{member.displayName}</strong> <span className="meta">{member.role}</span>
-              <button className="buzz-id-copy" type="button" aria-label={`Copy identity ID for ${member.displayName}`} onClick={() => void copyId(member.pubkey, 'Identity ID')}>{shortenBuzzId(member.pubkey)}</button>
-            </div>
-          </li>)}
-        </ul>
+      {copyMessage && <p className="glowbom-live-hint" role="status">{copyMessage}</p>}
+      {error && <p className="glowbom-live-error" role="alert">{error}</p>}
+      {connected && session && <div className="glowbom-live-connected-settings">
+        <details className="glowbom-live-disclosure">
+          <summary>Live messages and speech</summary>
+          <div className="glowbom-live-disclosure-body"><BuzzLiveSettings key={session.channelId} existingKey={elevenLabsKey} /></div>
+        </details>
+        <details className="glowbom-live-disclosure">
+          <summary>Channel members <span className="glowbom-live-count">{session.members.length}</span></summary>
+          <div className="glowbom-live-disclosure-body">
+            <div className="glowbom-live-status-row"><p className="glowbom-live-hint">Members from the last refresh.</p><button className="glowbom-live-icon" type="button" aria-label="Refresh members" title="Refresh members" disabled={busy} onClick={() => void callSession('refresh')}><RefreshIcon /></button></div>
+            {!session.members.length && <p className="glowbom-live-hint">No members returned. Check the channel ID and access for this identity.</p>}
+            <ul className="buzz-members">
+              {session.members.map((member) => <li key={member.pubkey}>
+                <BuzzAvatar key={`${session.channelId}:${avatarRevision}`} member={member} relayUrl={session.relayUrl} />
+                <div>
+                  <strong>{member.displayName}</strong> <span className="glowbom-live-hint">{member.role}</span>
+                  <button className="buzz-id-copy" type="button" aria-label={`Copy identity ID for ${member.displayName}`} onClick={() => void copyId(member.pubkey, 'Identity ID')}>{shortenBuzzId(member.pubkey)}</button>
+                </div>
+              </li>)}
+            </ul>
+          </div>
+        </details>
+        <details className="glowbom-live-disclosure">
+          <summary>Connect the Live app</summary>
+          <div className="glowbom-live-disclosure-body">
+            <p className="glowbom-live-hint">This token gives Glowbom Live on this computer access to the local backend. It is separate from your identity private key.</p>
+            <button type="button" className="glowbom-live-copy-token" disabled={action === 'disconnect'} onClick={() => void copyToken()}><CopyIcon />Copy access token</button>
+          </div>
+        </details>
       </div>}
-    </details>
+    </section>
   );
+}
+
+function RefreshIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7M20 12l-3-5" /></svg>;
+}
+
+function CopyIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 4H6a2 2 0 0 0-2 2v10" /></svg>;
 }

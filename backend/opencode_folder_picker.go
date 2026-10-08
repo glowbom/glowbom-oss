@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"os"
@@ -10,9 +12,22 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const folderPickerCanceledToken = "__GLOWBOM_PICKER_CANCELED__"
+const folderPickerOpenPrompt = "Select local Glowbom project folder"
+const folderPickerSavePrompt = "Choose where to save your Glowbom project"
+
+var nativeProjectPickerMu sync.Mutex
+var errNativeProjectPickerBusy = errors.New("A folder chooser is already open.")
+
+func folderPickerPrompt(purpose string) string {
+	if purpose == "save" {
+		return folderPickerSavePrompt
+	}
+	return folderPickerOpenPrompt
+}
 
 type openCodeProjectPickResponse struct {
 	Success  bool   `json:"success"`
@@ -57,13 +72,14 @@ func openCodePickProjectFolderHandler(w http.ResponseWriter, r *http.Request) {
 		err      error
 	)
 
+	start, prompt := pickerStartPath(w, r)
 	switch runtime.GOOS {
 	case "darwin":
-		path, canceled, err = pickProjectFolderMacOS()
+		path, canceled, err = pickProjectFolderMacOS(start, prompt)
 	case "windows":
-		path, canceled, err = pickProjectFolderWindows()
+		path, canceled, err = pickProjectFolderWindows(prompt)
 	case "linux":
-		path, canceled, err = pickProjectFolderLinux()
+		path, canceled, err = pickProjectFolderLinux(prompt)
 	default:
 		w.WriteHeader(http.StatusNotImplemented)
 		_ = json.NewEncoder(w).Encode(openCodeProjectPickResponse{
@@ -103,9 +119,52 @@ func openCodePickProjectFolderHandler(w http.ResponseWriter, r *http.Request) {
 
 	_ = json.NewEncoder(w).Encode(openCodeProjectPickResponse{
 		Success: true,
-		Path:    path,
+		Path:    canonicalDirectory(path),
 		Source:  "native",
 	})
+}
+
+func pickerStartPath(w http.ResponseWriter, r *http.Request) (string, string) {
+	var req struct {
+		Path    string `json:"path"`
+		Purpose string `json:"purpose"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	}
+	prompt := folderPickerPrompt(req.Purpose)
+	if dir := existingDirectory(canonicalDirectory(req.Path)); dir != "" {
+		return dir, prompt
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", prompt
+	}
+	return existingDirectory(canonicalDirectory(home)), prompt
+}
+
+func existingDirectory(path string) string {
+	if path == "" {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return path
+}
+
+func canonicalDirectory(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(trimmed)
+	resolved, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		return cleaned
+	}
+	return resolved
 }
 
 func openCodePickInstructionFilesHandler(w http.ResponseWriter, r *http.Request) {
@@ -188,16 +247,44 @@ func openCodePickInstructionFilesHandler(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func pickProjectFolderMacOS() (string, bool, error) {
-	cmd := exec.Command(
-		"osascript",
-		"-e", "try",
-		"-e", `set selectedFolder to POSIX path of (choose folder with prompt "Select local Glowbom project folder")`,
-		"-e", "return selectedFolder",
-		"-e", "on error number -128",
-		"-e", `return "__GLOWBOM_PICKER_CANCELED__"`,
-		"-e", "end try",
-	)
+func pickProjectFolderMacOS(start, prompt string) (string, bool, error) {
+	return pickProjectFolderMacOSWithContext(context.Background(), start, prompt)
+}
+
+func pickProjectFolderMacOSWithContext(ctx context.Context, start, prompt string, foreground ...bool) (string, bool, error) {
+	if !nativeProjectPickerMu.TryLock() {
+		return "", false, errNativeProjectPickerBusy
+	}
+	defer nativeProjectPickerMu.Unlock()
+	if prompt != folderPickerSavePrompt {
+		prompt = folderPickerOpenPrompt
+	}
+	args := []string{"-", start, prompt}
+	if len(foreground) > 0 && foreground[0] {
+		args = append(args, "foreground")
+	}
+	cmd := exec.CommandContext(ctx, "osascript", args...)
+	cmd.Stdin = strings.NewReader(`on run argv
+  set pickerPrompt to "Select local Glowbom project folder"
+  try
+    if (count of argv) > 2 then
+      if item 3 of argv is "foreground" then activate
+    end if
+    if (count of argv) > 1 and item 2 of argv is not "" then
+      set pickerPrompt to item 2 of argv
+    end if
+    if (count of argv) > 0 and item 1 of argv is not "" then
+      set startFolder to POSIX file (item 1 of argv) as alias
+      set selectedFolder to POSIX path of (choose folder with prompt pickerPrompt default location startFolder)
+    else
+      set selectedFolder to POSIX path of (choose folder with prompt pickerPrompt)
+    end if
+    return selectedFolder
+  on error number -128
+    return "__GLOWBOM_PICKER_CANCELED__"
+  end try
+end run
+`)
 
 	selected, err := runPickerCommand(cmd)
 	if err != nil {
@@ -266,27 +353,30 @@ func pickInstructionFilesMacOS() ([]string, bool, error) {
 	return paths, false, nil
 }
 
-func pickProjectFolderLinux() (string, bool, error) {
+func pickProjectFolderLinux(prompt string) (string, bool, error) {
+	if prompt != folderPickerSavePrompt {
+		prompt = folderPickerOpenPrompt
+	}
 	startDir := defaultPickerStartDir()
 	selected, canceled, err := runLinuxPicker([]nativePickerCommand{
 		{
 			Executable:      "zenity",
-			Args:            []string{"--file-selection", "--directory", "--title=Select local Glowbom project folder"},
+			Args:            []string{"--file-selection", "--directory", "--title=" + prompt},
 			CancelExitCodes: []int{1},
 		},
 		{
 			Executable:      "qarma",
-			Args:            []string{"--file-selection", "--directory", "--title=Select local Glowbom project folder"},
+			Args:            []string{"--file-selection", "--directory", "--title=" + prompt},
 			CancelExitCodes: []int{1},
 		},
 		{
 			Executable:      "yad",
-			Args:            []string{"--file-selection", "--directory", "--title=Select local Glowbom project folder"},
+			Args:            []string{"--file-selection", "--directory", "--title=" + prompt},
 			CancelExitCodes: []int{1},
 		},
 		{
 			Executable:      "kdialog",
-			Args:            []string{"--getexistingdirectory", startDir},
+			Args:            []string{"--title", prompt, "--getexistingdirectory", startDir},
 			CancelExitCodes: []int{1},
 		},
 	}, "No supported Linux folder picker found. Install zenity, kdialog, yad, or qarma.")
@@ -347,22 +437,29 @@ func pickInstructionFilesLinux() ([]string, bool, error) {
 	return paths, false, nil
 }
 
-func pickProjectFolderWindows() (string, bool, error) {
+func pickProjectFolderWindows(prompt string) (string, bool, error) {
+	if prompt != folderPickerSavePrompt {
+		prompt = folderPickerOpenPrompt
+	}
+	newFolder := "$false"
+	if prompt == folderPickerSavePrompt {
+		newFolder = "$true"
+	}
 	cmd := exec.Command(
 		"powershell.exe",
 		"-NoProfile",
 		"-STA",
 		"-Command",
-		`Add-Type -AssemblyName System.Windows.Forms
+		fmt.Sprintf(`Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = 'Select local Glowbom project folder'
-$dialog.ShowNewFolderButton = $false
+$dialog.Description = '%s'
+$dialog.ShowNewFolderButton = %s
 $result = $dialog.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK -or [string]::IsNullOrWhiteSpace($dialog.SelectedPath)) {
   Write-Output '__GLOWBOM_PICKER_CANCELED__'
   exit 0
 }
-Write-Output $dialog.SelectedPath`,
+Write-Output $dialog.SelectedPath`, prompt, newFolder),
 	)
 
 	selected, err := runPickerCommand(cmd)

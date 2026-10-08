@@ -33,6 +33,21 @@ func TestCursorArgumentsIsolateSessions(t *testing.T) {
 	if got := cursorArguments(" model-name ", "cursor-abc-123"); !reflect.DeepEqual(got, want) {
 		t.Fatal(got)
 	}
+	prefixed := append(base, "--model", "gpt-5.2")
+	if got := cursorArguments("cursor/gpt-5.2", ""); !reflect.DeepEqual(got, prefixed) {
+		t.Fatal(got)
+	}
+	if got := cursorArguments("cursor/../evil", ""); !reflect.DeepEqual(got, base) {
+		t.Fatal(got)
+	}
+}
+
+func TestParseCursorModels(t *testing.T) {
+	text := "Available models\n\nauto - Auto (default)\ngpt-5.2 - GPT-5.2\u200b\nbad line\n../nope - Hidden\n"
+	got := parseCursorModels(text)
+	if len(got) != 2 || got[0].ID != "cursor/auto" || got[0].Provider != "Cursor" || got[1].ID != "cursor/gpt-5.2" || got[1].Name != "GPT-5.2" {
+		t.Fatalf("%+v", got)
+	}
 }
 
 func TestStreamCursor(t *testing.T) {

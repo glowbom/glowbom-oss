@@ -1,4 +1,14 @@
-# CLI installer follow-up
+# Source checks and installation
+
+## Before publishing source
+
+Run `python3 -B scripts/audit-publication.py` from the repository root. Follow the
+[publication check guide](PUBLICATION_AUDIT.md) to review findings and understand
+what the scan covers. The release workflow runs this check before building CLI
+downloads. Account credentials, local logs, generated media, and private Desktop
+or production-service source do not belong in this repository.
+
+## CLI installer follow-up
 
 Status: proposed improvements, not implemented yet.
 

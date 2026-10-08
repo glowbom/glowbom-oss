@@ -6,8 +6,11 @@
     "glowbom",
     "quickstart",
     "glowbom-oss",
+    "connect-ai",
+    "local-ai",
     "cli",
     "project-book",
-    "desktop"
+    "desktop",
+    "companion"
   ]
 }

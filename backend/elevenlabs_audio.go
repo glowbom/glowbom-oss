@@ -2,28 +2,43 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
-	elevenLabsBaseURL         = "https://api.elevenlabs.io"
-	defaultElevenVoiceID      = "JBFqnCBsd6RMkjVDRZzb"
-	defaultElevenVoiceModel   = "eleven_multilingual_v2"
-	defaultElevenOutputFormat = "mp3_44100_128"
+	elevenLabsBaseURL           = "https://api.elevenlabs.io"
+	defaultElevenVoiceID        = "JBFqnCBsd6RMkjVDRZzb"
+	defaultElevenVoiceModel     = "eleven_multilingual_v2"
+	defaultElevenOutputFormat   = "mp3_44100_128"
+	defaultElevenSoundModel     = "eleven_text_to_sound_v2"
+	defaultElevenMusicModel     = "music_v1"
+	defaultElevenMusicDuration  = 30.0
+	minElevenMusicDuration      = 3.0
+	maxElevenMusicDuration      = 600.0
+	minElevenSoundDuration      = 0.5
+	maxElevenSoundDuration      = 30.0
+	elevenLabsAudioMaxBytes     = 32 << 20
+	elevenLabsGenerationTimeout = 10 * time.Minute
 )
 
 type ElevenLabsAudioRequest struct {
+	UseSavedKey       bool     `json:"useSavedKey,omitempty"`
 	Prompt            string   `json:"prompt"`
 	AudioType         string   `json:"audioType"` // "voice" | "sound" | "music"
 	ElevenLabsKey     string   `json:"elevenLabsKey,omitempty"`
@@ -36,6 +51,7 @@ type ElevenLabsAudioRequest struct {
 	PromptInfluence   *float64 `json:"promptInfluence,omitempty"`
 	Loop              bool     `json:"loop,omitempty"`
 	ForceInstrumental bool     `json:"forceInstrumental,omitempty"`
+	Ephemeral         bool     `json:"ephemeral,omitempty"`
 }
 
 type ElevenLabsAudioResponse struct {
@@ -48,6 +64,7 @@ type ElevenLabsAudioResponse struct {
 }
 
 type ElevenLabsVoicesRequest struct {
+	UseSavedKey   bool   `json:"useSavedKey,omitempty"`
 	ElevenLabsKey string `json:"elevenLabsKey"`
 }
 
@@ -73,22 +90,23 @@ func listElevenLabsVoicesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ElevenLabsVoicesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
-	apiKey := strings.TrimSpace(req.ElevenLabsKey)
+	apiKey, ok := resolveVoiceKey(w, r, req.ElevenLabsKey, req.UseSavedKey, systemVoiceKeyStore{})
+	if !ok {
+		return
+	}
 	if apiKey == "" {
 		http.Error(w, "elevenLabsKey is required", http.StatusBadRequest)
 		return
 	}
 
-	voices, err := fetchElevenLabsVoices(apiKey)
+	voices, err := fetchElevenLabsVoices(apiKey, r.Context())
 	if err != nil {
-		msg := fmt.Sprintf("[ERROR] ElevenLabs voices fetch failed: %v", err)
-		fmt.Println(msg)
-		http.Error(w, msg, http.StatusInternalServerError)
+		http.Error(w, "Could not load ElevenLabs voices. Check your key and connection.", http.StatusBadGateway)
 		return
 	}
 
@@ -104,15 +122,27 @@ func generateAudioHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ElevenLabsAudioRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
 		return
 	}
 
-	req.Prompt = strings.TrimSpace(req.Prompt)
-	audioType := normalizeAudioType(req.AudioType)
-	apiKey := strings.TrimSpace(req.ElevenLabsKey)
-	log.Printf("[ELEVENLABS] generation request type=%s prompt=%q", audioType, req.Prompt)
+	var validationErr error
+	req, validationErr = normalizeElevenLabsAudioRequest(req)
+	if validationErr != nil {
+		http.Error(w, validationErr.Error(), http.StatusBadRequest)
+		return
+	}
+	audioType := req.AudioType
+	apiKey, ok := resolveVoiceKey(w, r, req.ElevenLabsKey, req.UseSavedKey, systemVoiceKeyStore{})
+	if !ok {
+		return
+	}
+	if req.Ephemeral {
+		log.Printf("[ELEVENLABS] generation request type=%s ephemeral=true prompt_len=%d", audioType, len(req.Prompt))
+	} else {
+		log.Printf("[ELEVENLABS] generation request type=%s prompt_len=%d", audioType, len(req.Prompt))
+	}
 
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
@@ -132,38 +162,40 @@ func generateAudioHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch audioType {
 	case "voice":
-		audioBytes, mimeType, err = callElevenLabsVoice(req, apiKey)
+		audioBytes, mimeType, err = callElevenLabsVoice(req, apiKey, r.Context())
 	case "sound":
-		audioBytes, mimeType, err = callElevenLabsSound(req, apiKey)
+		audioBytes, mimeType, err = callElevenLabsSound(req, apiKey, r.Context())
 	case "music":
-		audioBytes, mimeType, err = callElevenLabsMusic(req, apiKey)
+		audioBytes, mimeType, err = callElevenLabsMusic(req, apiKey, r.Context())
 	default:
 		http.Error(w, "audioType must be one of: voice, sound, music", http.StatusBadRequest)
 		return
 	}
 
 	if err != nil {
-		msg := fmt.Sprintf("[ERROR] ElevenLabs %s generation failed: %v", audioType, err)
-		fmt.Println(msg)
 		log.Printf("[ELEVENLABS] generation failed type=%s err=%s", audioType, sanitizeElevenLabsError(err))
-		http.Error(w, msg, http.StatusInternalServerError)
+		http.Error(w, "ElevenLabs could not generate this audio. Check your key, options, and connection.", http.StatusBadGateway)
 		return
 	}
 
-	audioOutputDir := filepath.Join("saved_images", "audio")
-	if err := os.MkdirAll(audioOutputDir, 0755); err != nil {
-		fmt.Printf("[WARN] Failed creating %s folder: %v\n", audioOutputDir, err)
-	}
+	filename := ""
+	savedPath := ""
+	if !req.Ephemeral {
+		audioOutputDir := filepath.Join("saved_images", "audio")
+		if err := os.MkdirAll(audioOutputDir, 0755); err != nil {
+			fmt.Printf("[WARN] Failed creating %s folder: %v\n", audioOutputDir, err)
+		}
 
-	ext := extensionForAudioMimeType(mimeType)
-	filename := fmt.Sprintf("%s_%d.%s", audioType, time.Now().UnixNano(), ext)
-	savedPath := filepath.Join(audioOutputDir, filename)
+		ext := extensionForAudioMimeType(mimeType)
+		filename = fmt.Sprintf("%s_%d.%s", audioType, time.Now().UnixNano(), ext)
+		savedPath = filepath.Join(audioOutputDir, filename)
 
-	if err := os.WriteFile(savedPath, audioBytes, 0644); err != nil {
-		msg := fmt.Sprintf("[ERROR] writing audio file: %v", err)
-		fmt.Println(msg)
-		http.Error(w, msg, http.StatusInternalServerError)
-		return
+		if err := os.WriteFile(savedPath, audioBytes, 0644); err != nil {
+			msg := fmt.Sprintf("[ERROR] writing audio file: %v", err)
+			fmt.Println(msg)
+			http.Error(w, msg, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	resp := ElevenLabsAudioResponse{
@@ -179,7 +211,13 @@ func generateAudioHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func callElevenLabsVoice(req ElevenLabsAudioRequest, apiKey string) ([]byte, string, error) {
+func callElevenLabsVoice(req ElevenLabsAudioRequest, apiKey string, contexts ...context.Context) ([]byte, string, error) {
+	req.AudioType = "voice"
+	var err error
+	req, err = normalizeElevenLabsAudioRequest(req)
+	if err != nil {
+		return nil, "", err
+	}
 	voiceID := strings.TrimSpace(req.VoiceID)
 	if voiceID == "" {
 		voiceID = defaultElevenVoiceID
@@ -203,16 +241,20 @@ func callElevenLabsVoice(req ElevenLabsAudioRequest, apiKey string) ([]byte, str
 	}
 
 	endpoint := fmt.Sprintf("%s/v1/text-to-speech/%s", elevenLabsBaseURL, neturl.PathEscape(voiceID))
-	audioBytes, mimeType, err := callElevenLabsBinaryAPI(endpoint, params, body, apiKey)
-	if err != nil && modelID != defaultElevenVoiceModel && isElevenLabsModelNotFound(err) {
-		log.Printf("[ELEVENLABS][VOICE] model=%s not found, retrying with %s", modelID, defaultElevenVoiceModel)
-		body["model_id"] = defaultElevenVoiceModel
-		return callElevenLabsBinaryAPI(endpoint, params, body, apiKey)
+	if modelID == "eleven_v4" {
+		endpoint = elevenLabsBaseURL + "/v1/text-to-dialogue"
+		body = map[string]interface{}{"model_id": modelID, "inputs": []map[string]string{{"text": req.Prompt, "voice_id": voiceID}}}
 	}
-	return audioBytes, mimeType, err
+	return callElevenLabsBinaryAPI(endpoint, params, body, apiKey, contexts...)
 }
 
-func callElevenLabsSound(req ElevenLabsAudioRequest, apiKey string) ([]byte, string, error) {
+func callElevenLabsSound(req ElevenLabsAudioRequest, apiKey string, contexts ...context.Context) ([]byte, string, error) {
+	req.AudioType = "sound"
+	var err error
+	req, err = normalizeElevenLabsAudioRequest(req)
+	if err != nil {
+		return nil, "", err
+	}
 	params := neturl.Values{}
 	outputFormat := strings.TrimSpace(req.OutputFormat)
 	if outputFormat == "" {
@@ -237,10 +279,16 @@ func callElevenLabsSound(req ElevenLabsAudioRequest, apiKey string) ([]byte, str
 		body["loop"] = true
 	}
 
-	return callElevenLabsBinaryAPI(elevenLabsBaseURL+"/v1/sound-generation", params, body, apiKey)
+	return callElevenLabsBinaryAPI(elevenLabsBaseURL+"/v1/sound-generation", params, body, apiKey, contexts...)
 }
 
-func callElevenLabsMusic(req ElevenLabsAudioRequest, apiKey string) ([]byte, string, error) {
+func callElevenLabsMusic(req ElevenLabsAudioRequest, apiKey string, contexts ...context.Context) ([]byte, string, error) {
+	req.AudioType = "music"
+	var err error
+	req, err = normalizeElevenLabsAudioRequest(req)
+	if err != nil {
+		return nil, "", err
+	}
 	params := neturl.Values{}
 	outputFormat := strings.TrimSpace(req.OutputFormat)
 	if outputFormat == "" {
@@ -259,13 +307,18 @@ func callElevenLabsMusic(req ElevenLabsAudioRequest, apiKey string) ([]byte, str
 		body["music_length_ms"] = int(req.DurationSeconds * 1000.0)
 	}
 	if req.ForceInstrumental {
-		body["is_instrumental"] = true
+		body["force_instrumental"] = true
 	}
 
-	return callElevenLabsBinaryAPI(elevenLabsBaseURL+"/v1/music", params, body, apiKey)
+	return callElevenLabsBinaryAPI(elevenLabsBaseURL+"/v1/music", params, body, apiKey, contexts...)
 }
 
-func callElevenLabsBinaryAPI(endpoint string, query neturl.Values, body map[string]interface{}, apiKey string) ([]byte, string, error) {
+func callElevenLabsBinaryAPI(endpoint string, query neturl.Values, body map[string]interface{}, apiKey string, contexts ...context.Context) ([]byte, string, error) {
+	if strings.TrimSpace(apiKey) == "" || len(apiKey) > 16384 {
+		return nil, "", errors.New("Add a valid ElevenLabs key in Voice settings.")
+	}
+	ctx, cancel := context.WithTimeout(imageRequestContext(contexts), elevenLabsGenerationTimeout)
+	defer cancel()
 	url := endpoint
 	if len(query) > 0 {
 		url += "?" + query.Encode()
@@ -276,45 +329,57 @@ func callElevenLabsBinaryAPI(endpoint string, query neturl.Values, body map[stri
 		return nil, "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	request, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("xi-api-key", apiKey)
-	modelID, _ := body["model_id"].(string)
-	promptText := ""
-	if text, ok := body["text"].(string); ok {
-		promptText = text
-	} else if prompt, ok := body["prompt"].(string); ok {
-		promptText = prompt
-	}
-	log.Printf("[ELEVENLABS] request endpoint=%s model=%s prompt=%q", endpoint, strings.TrimSpace(modelID), promptText)
 
-	response, err := http.DefaultClient.Do(request)
+	client := *http.DefaultClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return errors.New("The audio provider redirected this generation request.")
+	}
+	response, err := client.Do(request)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to call ElevenLabs API: %w", err)
+		if ctx.Err() != nil {
+			return nil, "", ctx.Err()
+		}
+		return nil, "", errors.New("Could not reach ElevenLabs. Check your connection and try again.")
 	}
 	defer response.Body.Close()
 
-	data, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(io.LimitReader(response.Body, elevenLabsAudioMaxBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read ElevenLabs response: %w", err)
 	}
 
+	if len(data) > elevenLabsAudioMaxBytes {
+		return nil, "", errors.New("ElevenLabs returned audio larger than 32 MB.")
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		log.Printf("[ELEVENLABS] error endpoint=%s status=%d body=%s", endpoint, response.StatusCode, truncateElevenLabsLog(string(data), 320))
-		return nil, "", fmt.Errorf("ElevenLabs API error (status %d): %s", response.StatusCode, string(data))
+		return nil, "", elevenLabsResponseError(response.StatusCode, data)
+	}
+	if len(data) == 0 {
+		return nil, "", errors.New("ElevenLabs returned empty audio.")
+	}
+	if strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "json") {
+		return nil, "", errors.New("ElevenLabs returned an unsupported audio response.")
 	}
 
 	mimeType := inferAudioMimeType(response.Header.Get("Content-Type"), data)
+	if !strings.HasPrefix(mimeType, "audio/") {
+		return nil, "", errors.New("ElevenLabs returned an unsupported audio response.")
+	}
 	log.Printf("[ELEVENLABS] success endpoint=%s status=%d bytes=%d mime=%s", endpoint, response.StatusCode, len(data), mimeType)
 	return data, mimeType, nil
 }
 
-func fetchElevenLabsVoices(apiKey string) ([]ElevenLabsVoiceOption, error) {
-	request, err := http.NewRequest("GET", elevenLabsBaseURL+"/v1/voices", nil)
+func fetchElevenLabsVoices(apiKey string, contexts ...context.Context) ([]ElevenLabsVoiceOption, error) {
+	ctx, cancel := context.WithTimeout(imageRequestContext(contexts), 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, elevenLabsBaseURL+"/v1/voices", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -322,19 +387,22 @@ func fetchElevenLabsVoices(apiKey string) ([]ElevenLabsVoiceOption, error) {
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call ElevenLabs API: %w", err)
+		return nil, errors.New("Could not reach ElevenLabs. Check your connection and try again.")
 	}
 	defer response.Body.Close()
 
-	data, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(io.LimitReader(response.Body, (2<<20)+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read ElevenLabs response: %w", err)
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("ElevenLabs API error (status %d): %s", response.StatusCode, string(data))
+		return nil, elevenLabsResponseError(response.StatusCode, data)
 	}
 
+	if len(data) > 2<<20 {
+		return nil, errors.New("ElevenLabs returned an oversized voice list.")
+	}
 	var decoded struct {
 		Voices []struct {
 			VoiceID     string            `json:"voice_id"`
@@ -377,6 +445,103 @@ func fetchElevenLabsVoices(apiKey string) ([]ElevenLabsVoiceOption, error) {
 	return voices, nil
 }
 
+// Normalize before any provider call, including legacy requests and approved run media.
+// Music always has an explicit length so the provider cannot choose a costly song.
+func normalizeElevenLabsAudioRequest(req ElevenLabsAudioRequest) (ElevenLabsAudioRequest, error) {
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	req.AudioType = normalizeAudioType(req.AudioType)
+	if req.Prompt == "" {
+		return req, errors.New("Enter text or a description for the audio.")
+	}
+	limit := 5000
+	if req.AudioType == "music" {
+		limit = 4100
+	}
+	if utf8.RuneCountInString(req.Prompt) > limit {
+		return req, fmt.Errorf("Use an audio prompt up to %d characters.", limit)
+	}
+	if len(req.ElevenLabsKey) > 16384 {
+		return req, errors.New("The ElevenLabs key is too long.")
+	}
+	if math.IsNaN(req.DurationSeconds) || math.IsInf(req.DurationSeconds, 0) || req.DurationSeconds < 0 {
+		return req, errors.New("Choose a valid audio duration.")
+	}
+	if req.PromptInfluence != nil && (math.IsNaN(*req.PromptInfluence) || math.IsInf(*req.PromptInfluence, 0) || *req.PromptInfluence < 0 || *req.PromptInfluence > 1) {
+		return req, errors.New("Prompt influence must be between 0 and 1.")
+	}
+	req.OutputFormat = strings.TrimSpace(req.OutputFormat)
+	if req.OutputFormat == "" {
+		req.OutputFormat = defaultElevenOutputFormat
+	}
+	if len(req.OutputFormat) > 128 {
+		return req, errors.New("Choose a supported audio output format.")
+	}
+	req.VoiceID = strings.TrimSpace(req.VoiceID)
+	if req.VoiceID == "" {
+		req.VoiceID = defaultElevenVoiceID
+	}
+	req.VoiceModel = normalizeElevenLabsVoiceModel(req.VoiceModel)
+	if req.VoiceModel == "" {
+		req.VoiceModel = defaultElevenVoiceModel
+	}
+	req.SoundModel = strings.TrimSpace(req.SoundModel)
+	if req.SoundModel == "" {
+		req.SoundModel = defaultElevenSoundModel
+	}
+	req.MusicModel = strings.TrimSpace(req.MusicModel)
+	if req.MusicModel == "" {
+		req.MusicModel = defaultElevenMusicModel
+	}
+	if len(req.VoiceID) > 256 || len(req.VoiceModel) > 256 || len(req.SoundModel) > 256 || len(req.MusicModel) > 256 {
+		return req, errors.New("The selected voice or model identifier is too long.")
+	}
+	for _, id := range []string{req.VoiceID, req.VoiceModel, req.SoundModel, req.MusicModel} {
+		if !elevenLabsIdentifier.MatchString(id) {
+			return req, errors.New("Use a voice or model identifier containing letters, numbers, dots, underscores, or hyphens.")
+		}
+	}
+	switch req.AudioType {
+	case "voice":
+		if req.VoiceModel == "eleven_v4_turbo" {
+			return req, errors.New("Eleven v4 Turbo requires the Text to Dialogue WebSocket API, which this audio flow does not yet support. Choose Eleven v4 or another voice model.")
+		}
+		if req.VoiceModel == "eleven_v4" && utf8.RuneCountInString(req.Prompt) > 2000 {
+			return req, errors.New("Use up to 2,000 characters for reliable Eleven v4 dialogue generation.")
+		}
+	case "sound":
+		if req.DurationSeconds != 0 && (req.DurationSeconds < minElevenSoundDuration || req.DurationSeconds > maxElevenSoundDuration) {
+			return req, errors.New("Sound effect length must be between 0.5 and 30 seconds.")
+		}
+		if req.Loop && req.SoundModel != defaultElevenSoundModel {
+			return req, errors.New("Looping sound effects require eleven_text_to_sound_v2.")
+		}
+	case "music":
+		if req.DurationSeconds == 0 {
+			req.DurationSeconds = defaultElevenMusicDuration
+		}
+		if req.DurationSeconds < minElevenMusicDuration || req.DurationSeconds > maxElevenMusicDuration {
+			return req, errors.New("Music length must be between 3 and 600 seconds.")
+		}
+	default:
+		return req, errors.New("Choose voice, sound effects, or music.")
+	}
+	return req, nil
+}
+
+// Keep only a recognized error code. Provider bodies can echo keys or private text.
+func elevenLabsResponseError(status int, data []byte) error {
+	var payload struct {
+		Detail struct {
+			Status string `json:"status"`
+		} `json:"detail"`
+	}
+	_ = json.Unmarshal(data, &payload)
+	if payload.Detail.Status == "model_not_found" {
+		return fmt.Errorf("ElevenLabs API error (status %d): model_not_found", status)
+	}
+	return fmt.Errorf("ElevenLabs API error (status %d)", status)
+}
+
 func normalizeAudioType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "voice", "speech", "tts":
@@ -399,10 +564,14 @@ func normalizeElevenLabsVoiceModel(value string) string {
 	switch normalized {
 	case "default", "standard", "base", "multilingual", "multilingual_v2":
 		return defaultElevenVoiceModel
+	case "eleven_v4", "eleven_v4_turbo":
+		return normalized
 	default:
 		return strings.TrimSpace(value)
 	}
 }
+
+var elevenLabsIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
 
 func isElevenLabsModelNotFound(err error) bool {
 	if err == nil {
@@ -480,6 +649,8 @@ func extensionForAudioMimeType(mimeType string) string {
 		return "wav"
 	case "audio/ogg":
 		return "ogg"
+	case "audio/opus":
+		return "opus"
 	case "audio/flac":
 		return "flac"
 	case "audio/mp4", "audio/x-m4a":
