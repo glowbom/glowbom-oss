@@ -1,0 +1,85 @@
+---
+title: Glowbom Live
+description: Download the separate Live app and connect your Buzz channel to a 3D office.
+---
+
+Glowbom Live shows people and agents from a Buzz channel as characters in a
+3D office. It is a separate, closed-source app for Mac, Windows, and Linux.
+Its downloads are hosted in the Glowbom OSS repository's GitHub release assets;
+its app source is not part of OSS.
+
+The OSS browser interface provides the coding workflow and Buzz connection
+controls. Install Live to open the 3D office. Keep either
+[Glowbom OSS](./glowbom-oss) or [Glowbom Desktop](./desktop) running on the same
+computer to provide the local backend.
+
+## Download and install
+
+Open the [GitHub release assets](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0)
+and choose the package for your computer. The Live app is version **4.1.1**,
+hosted on the existing **v4.1.0** release.
+
+| Platform | Release asset | Install |
+| --- | --- | --- |
+| Mac, Apple silicon or Intel | `Glowbom-Live-4.1.1-macos-universal.dmg` | Open the signed, notarized DMG and drag Glowbom Live into Applications. |
+| Windows x64 | `Glowbom-Live-4.1.1-windows-x64-unsigned.exe` | Run the downloaded app. This preview is unsigned; Windows may show a SmartScreen warning. |
+| Linux x86_64 | `Glowbom-Live-4.1.1-linux-x86_64.tar.gz` | Extract the archive and run `GlowbomLive`. |
+| Linux ARM64 | `Glowbom-Live-4.1.1-linux-arm64.tar.gz` | Extract the archive and run `GlowbomLive`. |
+
+Choose the named Live package, rather than GitHub's **Source code** ZIP or tarball.
+You do not need the Godot editor. `Glowbom-Live-4.1.1-SHA256SUMS` contains checksums
+for the four downloads and can be used to verify the file you downloaded.
+
+Live does not install OSS. On Windows, the documented OSS setup runs in WSL;
+Live is the native Windows app. Native Windows and Linux runtime acceptance
+checks remain pending for this preview.
+
+## Connect a Buzz channel
+
+1. Start OSS using its [setup guide](./glowbom-oss), or open Desktop.
+2. In OSS, click **Buzz** in the top bar. In Desktop, open
+   **Account → Settings → Glowbom Live**.
+3. Enter the **Server URL**, channel ID, and your Buzz identity private key,
+   then choose **Connect**. The backend needs the Buzz CLI installed to look
+   up your channel members.
+4. Check **Channel members** to confirm the roster, then open Live as described
+   below. No Glowbom account is required for this connection.
+
+See the [Buzz CLI project](https://github.com/block/buzz) for installation.
+The backend finds `buzz` on PATH or the CLI inside `/Applications/Buzz.app` on Mac.
+For the connector's technical details, see
+[the repository's Buzz guide](https://github.com/glowbom/glowbom-oss/blob/main/BUZZ.md).
+
+### Open Live on Mac
+
+Install Live in `/Applications` or `~/Applications`. Return to the Buzz panel
+in OSS or Live settings in Desktop and choose **Open Glowbom Live**. If Live
+is already open, quit it first so the new connection can be passed to it.
+
+Live 4.1.1 accepts the local backend connection automatically when launched
+this way. Opening Live directly from Finder uses the manual setup below.
+If the button still says **Get Glowbom Live**, check the installation location
+and return to Glowbom to refresh it.
+
+### Open Live manually
+
+On Windows or Linux, or when opening the app yourself on Mac:
+
+1. In OSS's Buzz panel or Desktop's Live settings, expand **Connect the Live app**.
+2. Choose **Copy access token**.
+3. Open the installed Live app, choose the Glowbom Live experience, and paste
+   into **Local backend access token**. Choose **New Game**.
+
+This is the local backend token, not your Buzz identity private key. Keep it
+private. Leave OSS or Desktop running while using Live. After restarting the
+backend, reconnect the Buzz channel and pass the new token to Live.
+
+## Preview limits
+
+The current office supports rosters of one to eight members. Walking and typing
+animations are ambient; they do not prove that an agent is running a task.
+Restart the office after refreshing the roster to show membership changes.
+
+Live is optional. You can use the OSS coding workflow without it, or
+[sign up for Glowbom Desktop early access](https://glowbom.com/desktop) for the
+full Mac workspace.

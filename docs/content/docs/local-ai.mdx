@@ -1,9 +1,13 @@
 ---
-title: Try local AI
-description: Configure local backend models and the separate Desktop setup screens.
+title: Local AI setup
+description: Connect models, voice, and dictation running on your computer.
 ---
 
 import { LocalAISetup } from "../../app/components/local-ai-setup";
+
+This is the local setup path within [Agents](./connect-ai). Use it for
+models running on your computer; the main guide covers coding agents and
+provider sign-in.
 
 The open backend can use a local chat or coding model through OpenCode. The
 guided Local AI, chat, dictation, and speech screens below belong to the full
@@ -54,8 +58,10 @@ promise about memory needed while it runs. Check the community upload and the
 upstream model page before downloading. Xiaomi's upstream card marks the
 model MIT licensed; the community upload has its own page and files to review.
 
-1. [Install Ollama](https://docs.ollama.com/quickstart) and open its app. Install
-   [OpenCode and Glowbom OSS](./glowbom-oss) if you have not done so already.
+1. [Install Ollama](https://docs.ollama.com/quickstart) and open its app. Set up
+   [Glowbom Desktop](./desktop) and [OpenCode](./connect-ai#opencode) for the chat
+   steps below. OSS users can use the manual OpenCode configuration with a
+   suitable coding model.
 2. Run the model in a terminal. The first run downloads its files:
 
    ```bash
@@ -105,11 +111,11 @@ model MIT licensed; the community upload has its own page and files to review.
    server still uses the old configuration, restart the Glowbom stack and refresh
    the model list again.
 
-4. From your Glowbom OSS checkout, run `glowbom start`. Turn off **Build on
-   send**, then choose **Ollama (local)** and **MiMo V2.6 9B** from the chat
-   model menu. Ask a short question or attach a picture. MiMo is marked **Chat
+4. In Desktop, turn off **Build on send**, then choose the connected MiMo model
+   from the chat model menu. Ask a short question or attach a picture. MiMo is marked **Chat
    only** because its Build responses through OpenCode can be incomplete.
-   Choose a different model for Draw or Build.
+   Choose a different model for Draw or Build. The minimal OSS interface has
+   no general Chat screen; use a suitable coding model for its Build workflow.
 5. If you choose another local model for Build, check
    [Ollama's context length guide](https://docs.ollama.com/context-length).
    OpenCode's coding workflow needs a longer context, which also uses more

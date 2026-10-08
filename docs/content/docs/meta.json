@@ -5,12 +5,12 @@
     "index",
     "glowbom",
     "quickstart",
-    "glowbom-oss",
-    "connect-ai",
-    "local-ai",
-    "cli",
-    "project-book",
     "desktop",
-    "companion"
+    "connect-ai",
+    "project-book",
+    "companion",
+    "glowbom-live",
+    "glowbom-oss",
+    "cli"
   ]
 }

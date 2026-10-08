@@ -1,29 +1,84 @@
 ---
-title: Connect AI
-description: Connect coding agents and models through CLI logins and optional ACP connections.
+title: Agents
+description: Set up coding agents, cloud providers, and models running on your computer.
 ---
 
-The open backend uses AI connected on the computer running Desktop or Glowbom
-OSS. The model menu, Chat/Draw controls, Connect AI screen, and Tools screens
-below describe the full Desktop client. The public Agent + Buzz browser has
-its own agent settings and does not include every Desktop screen.
-Open **Connect AI** from the model menu or **Settings → Connect AI**. Install an
-agent, sign in with its own account, then refresh the model menu.
+Choose the AI tools for your Glowbom Desktop workflow. Install a coding agent
+and connect its provider, or use a model running on your computer. You only
+need one connection to start. Each connection keeps its own models, permissions,
+account access, and usage limits. The coding-agent setup also applies to OSS.
+
+- **Glowbom OSS:** open **Settings**, then choose a **Coding agent**. Codex and
+  ACP settings appear below that choice. Select an available model before Build.
+- **Glowbom Desktop:** open **Agents** from the model menu or
+  **Settings → Agents**. Codex and ACP connection controls are also in
+  **Account → Settings → Tools**. Refresh the model menu after connecting.
+
+Both clients use the open backend on your computer. Chat, Draw, Studio, and
+Project Book screens below belong to the full Desktop client; OSS has the
+simpler Agent + Buzz workspace.
 
 ## Choose a connection
 
 | Connection | Use in Glowbom | Setup |
 | --- | --- | --- |
 | OpenCode | Chat, Draw, Project Book, and Build with suitable connected models. | [Glowbom OSS setup](./glowbom-oss) and [OpenCode providers](https://opencode.ai/docs/providers/). |
-| Codex | Chat, Draw, Project Book, and Build with supported models. | [Codex CLI](https://developers.openai.com/codex/cli). Sign-in controls are also in Tools. |
+| Codex App Server | Chat, Draw, Project Book, and Build with supported models. | Install Codex CLI and sign in below. Glowbom starts the server. |
 | Cursor | Build in your project folder. | Install and sign in to the CLI below. |
 | Claude Code | Build in your project folder. | [Claude Code setup](https://code.claude.com/docs/en/setup). |
 | ACP agents | Build through a manually saved connection. | Configure the agent below. |
+| Local models | Chat or Build, depending on the model and connection. | [Local AI setup](./local-ai) with Ollama and OpenCode. |
 
 Chat discusses an idea. Draw makes a browser prototype. Build lets an agent
 change project files and run commands. Selecting Cursor, Claude Code, or ACP
-switches the composer to Build. For models running on your computer, see
-[Try local AI](./local-ai).
+switches the composer to Build.
+
+### Use AI on your computer
+
+Local AI is another connection choice. The [local AI setup guide](./local-ai)
+covers Ollama models, local voice, and dictation. Start there if you want a
+model running on your computer, then select the connected model in Glowbom.
+Desktop has guided setup screens; OSS can use suitable coding models through
+OpenCode's configuration. Model capability and memory requirements vary.
+
+## Install and sign in
+
+| Agent | Installation | Authentication |
+| --- | --- | --- |
+| OpenCode | [OpenCode installation](https://opencode.ai/docs/) | `opencode auth login` |
+| Codex | [Codex CLI installation](https://developers.openai.com/codex/cli) | `codex login`, or Glowbom's **Sign in with ChatGPT** button. |
+| Claude Code | [Claude Code setup](https://code.claude.com/docs/en/setup) | `claude auth login` |
+| Cursor | [Cursor CLI installation](https://cursor.com/docs/cli/installation) | See the command-name and path instructions below. |
+
+### OpenCode
+
+Run `opencode auth login`, choose a provider, and finish its sign-in or API-key
+setup. Glowbom uses OpenCode's connected providers and models. Available login
+methods depend on the provider and OpenCode version. Follow the
+[provider guide](https://opencode.ai/docs/providers/) for your account.
+The launcher checks the OpenCode version and selects its matching adapter.
+
+### Codex
+
+Install Codex CLI, then run `codex login` and complete the browser sign-in.
+You can also select Codex in Glowbom and use **Sign in with ChatGPT**.
+Check terminal authentication with `codex login status`; see
+[Codex authentication](https://developers.openai.com/codex/auth) for account
+options and headless setup.
+
+Glowbom starts [Codex App Server](https://developers.openai.com/codex/app-server)
+over its local stdio connection. There is no separate server command to run or
+port to configure. After connecting, choose a model reported by Codex. Model
+availability and usage depend on your account.
+
+### Claude Code
+
+Install the CLI, run `claude auth login`, then check `claude auth status`.
+These commands are documented in the
+[Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference).
+Select **Claude Code** in Glowbom's Build controls. This connection runs the
+Claude Code CLI in your project folder; it does not add general Chat or Draw
+models. If you installed the CLI while Glowbom was open, refresh the tool checks.
 
 ## Connect Cursor
 
@@ -47,10 +102,10 @@ Finish the browser sign-in. Installing the Cursor editor alone is not enough.
 account access. Glowbom only lists Cursor models when the CLI's `models`
 command succeeds.
 
-After signing in, allow 45 seconds for the model cache to expire, then choose
-**Refresh models**. The **Cursor → Add models** action exposes more models
-reported by your account. If the entire Cursor group is missing, first check
-CLI login and model discovery.
+After signing in, allow 45 seconds for the model cache to expire. In OSS, open
+**Settings → Refresh**. In Desktop, choose **Refresh models**; **Cursor → Add
+models** exposes more models reported by your account. If the entire Cursor
+group is missing, first check CLI login and model discovery.
 
 Cursor's current [authentication](https://cursor.com/docs/cli/reference/authentication)
 and [command reference](https://cursor.com/docs/cli/reference/parameters) use
@@ -66,23 +121,28 @@ Agent Client Protocol (ACP) connects coding agents to other tools. Glowbom
 can save up to three installed agents, including custom agents.
 
 1. Install the agent and complete its own sign-in or provider setup.
-2. Open **Account → Tools → ACP connections** and expand an empty slot.
+2. In OSS, open **Settings → Coding agent → ACP connection**. In Desktop, open
+   **Account → Settings → Tools → ACP connections**. Expand an empty slot.
 3. Enter a name, executable, and ACP launch arguments, one argument per line.
 4. Choose **Test connection**. It starts the agent in a temporary folder,
    checks ACP version 1 and session setup, and reports image support and models.
 5. Choose a reported **Model**, or keep **Use agent default**, then **Save**.
-6. Choose the saved connection in the **Build** model menu.
+6. In OSS, choose the saved connection in the model selector beneath
+   **ACP connection**. In Desktop, choose it in the **Build** model menu.
 
-| Agent | Executable | Arguments |
-| --- | --- | --- |
-| [Cline](https://docs.cline.bot/usage/acp) | `cline` | `--acp` |
-| [Kilo](https://kilo.ai/docs/code-with-ai/platforms/cli-reference#kilo-acp) | `kilo` | `acp` |
-| [Goose](https://goose-docs.ai/docs/gdk/acp/) | `goose` | `acp` |
-| [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/) | `hermes` | `acp` |
-| [OpenClaw](https://docs.openclaw.ai/cli/acp) | `openclaw` | `acp` |
+These are manual setup examples, not built-in presets. Follow each agent's
+linked installation guide and test your installed version.
 
-For Cline, install with `npm install -g cline`, then run `cline auth` before
-testing. Choose its model in Glowbom's connection settings; do not assume
+| Agent | Executable | Arguments | Before connecting |
+| --- | --- | --- | --- |
+| [Cline](https://docs.cline.bot/usage/acp) | `cline` | `--acp` | Install with `npm install -g cline`, then run `cline auth`. |
+| [Goose](https://goose-docs.ai/docs/gdk/acp/) | `goose` | `acp` | Run `goose configure`; enable its Developer extension. |
+| [Grok Build](https://docs.x.ai/build/overview) | `grok` | `agent` and `stdio`, one per line | Run `grok login`; follow the testing steps below. |
+| [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/) | `hermes` | `acp` | Configure with `hermes model`; check `hermes acp --check`. |
+| [Kilo](https://kilo.ai/docs/code-with-ai/platforms/cli-reference#kilo-acp) | `kilo` | `acp` | Complete its provider and account setup. |
+| [OpenClaw](https://docs.openclaw.ai/cli/acp) | `openclaw` | `acp` | Configure and start its Gateway. |
+
+For Cline, choose its model in Glowbom's connection settings; do not assume
 its terminal selection is the ACP default. Test again after changing the
 agent's provider or account.
 
@@ -92,11 +152,6 @@ extension for file edits and commands. Glowbom uses Goose's saved setup; provide
 API keys and `GOOSE_*` variables from Glowbom's environment are not passed through.
 On macOS, check for a Keychain prompt if connecting stalls. Use **Test connection**,
 then try a small Build to check your Goose version and provider.
-
-For Hermes, install with ACP support, configure its provider and model with
-`hermes model`, then run `hermes acp --check`. Minimal installations may need
-the optional ACP dependency described in its guide. Hermes uses its own saved
-credentials and tools.
 
 OpenClaw's ACP command bridges to a running **Gateway**. Complete OpenClaw's
 setup, start the Gateway, and check that its agent can work in your project
@@ -111,6 +166,56 @@ Use a full executable path if Glowbom cannot find the program. Keep shell
 quotes, commands, and credentials out of these fields. **Save** does not start
 the agent. **Test connection** does not verify a build or every agent feature.
 An unavailable or rejected saved model stops the build with an error.
+
+With an ACP-only setup, `glowbom doctor` can still report a missing coding agent:
+that check currently recognizes the four built-in CLI integrations. This does
+not prevent `glowbom start`. Use **Test connection** and a small Build to check
+your ACP agent, while resolving any missing Go, Bun, or checkout requirements.
+
+### Grok Build
+
+Install [Grok Build](https://docs.x.ai/build/overview), then run `grok login`
+and finish the browser sign-in. In an empty ACP slot, use **Grok Build** as the
+name and `grok` as the executable. Enter these arguments on separate lines:
+
+```text
+agent
+stdio
+```
+
+This starts the documented [Grok ACP connection](https://docs.x.ai/build/cli/headless-scripting).
+Glowbom requests headless authentication using the saved login when the agent
+advertises its `cached_token` authentication method. An expired or missing
+login requires signing in again in Terminal. Provider API-key environment
+variables are not forwarded, and keys do not belong in the argument fields.
+
+Choose **Test connection**, select a reported model or **Use agent default**,
+and save. In a disposable project, ask Grok Build to create a short text file.
+Check the complete final response, the file on disk, permission requests, and
+Stop before using it on important work. This source adds the cached-login
+handshake; real Grok Build acceptance is still pending. Restart a backend running older source to
+use it; installed Desktop packages need an update containing this change.
+
+### Hermes
+
+Install Hermes with the optional ACP dependency from its
+[ACP setup guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp/).
+Configure the provider and model in Terminal:
+
+```sh
+hermes model
+hermes acp --check
+```
+
+Add a connection named **Hermes**, executable `hermes`, and argument `acp`.
+Choose **Test connection**, select a reported model or **Use agent default**,
+then save. Hermes uses its own saved provider configuration and tools. If the
+check reports a missing ACP dependency, complete the optional installation
+step in the linked guide before trying again.
+
+Try a small Build in a disposable folder and check the resulting files,
+permissions, and Stop. These are setup instructions, not confirmation of a
+successful run with your Hermes version and provider.
 
 ## Review permissions and limits
 

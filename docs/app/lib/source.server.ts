@@ -1,12 +1,41 @@
 import { loader } from "fumadocs-core/source";
+import type { Folder, Item, Node, Root } from "fumadocs-core/page-tree";
 import { docs } from "fumadocs-mdx:collections/server";
 import type { LoadedDocPage, SearchRecord } from "./docs";
 
 const baseUrl = "/";
 
+function groupDesktopGuides(tree: Root): Root {
+  const page = (url: string): Item => {
+    const item = tree.children.find((node): node is Item => node.type === "page" && node.url === url);
+    if (!item) throw new Error(`Missing documentation page: ${url}`);
+    return item;
+  };
+  const desktop: Folder = {
+    type: "folder",
+    $id: "glowbom-desktop-guides",
+    name: page("/desktop").name,
+    index: page("/desktop"),
+    defaultOpen: true,
+    children: [page("/connect-ai"), page("/project-book"), page("/companion"), page("/glowbom-live"), page("/glowbom-oss"), page("/cli")],
+  };
+  const grouped = new Set(["/connect-ai", "/project-book", "/companion", "/glowbom-live", "/glowbom-oss", "/cli"]);
+
+  // Group the guides without changing their existing public URLs.
+  return {
+    ...tree,
+    children: tree.children.flatMap<Node>((node) => {
+      if (node.type !== "page") return [node];
+      if (node.url === "/desktop") return [desktop];
+      return grouped.has(node.url) ? [] : [node];
+    }),
+  };
+}
+
 export const source = loader({
   baseUrl,
   source: docs.toFumadocsSource(),
+  pageTree: { generateFallback: false, transformers: [{ root: groupDesktopGuides }] },
 });
 
 const treePromise = source.serializePageTree(source.pageTree);

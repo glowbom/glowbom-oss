@@ -1,116 +1,127 @@
 # Glowbom OSS
 
-Glowbom OSS is the open local backend, command-line tool, and Agent + Buzz
-browser workspace for Glowbom projects. Choose a project, give a coding agent
-instructions, review its work, and preview the result. Your project files stay
-on your computer.
+**Build local projects with the coding agents you choose.**
 
-The public browser interface focuses on Agent and Buzz. The full Glowbom Desktop
-interface, including Chat, Draw, Studio, Project Book screens, onboarding, and
-the Tauri shell, is developed separately. It uses this open backend. Its UI
-source is not included here. The backend APIs, portable Book format, and project
-templates remain available for other clients and tools.
+Open a project, describe a change, review the agent's work, and preview the result.
+Glowbom OSS includes the open backend, CLI, project templates, and a simple
+browser interface for coding agents and Buzz connections. Your project files
+stay on your computer.
 
-Glowbom OSS was previously called Glowby OSS. Existing projects and transition
-commands remain supported.
+## Choose how to use Glowbom
 
-## Start locally
+| Product | Get started |
+| --- | --- |
+| **Glowbom OSS** | Open-source backend, CLI, and local coding interface. [Run from source](#run-glowbom-oss); no Glowbom account required. |
+| **Glowbom Live** | A separate, closed-source 3D office for your Buzz channel. [Download the app from GitHub release assets](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0). |
+| **Glowbom Desktop** | The full Mac app, available through early access. [Sign up at glowbom.com/desktop](https://glowbom.com/desktop). |
 
-Install [Go](https://go.dev/), [Bun](https://bun.sh/), and the coding agent you
-intend to use. For OpenCode, install it and connect a provider using
-`opencode auth login`. The local workflow does not require a Glowbom account.
+Desktop and Live use the open backend. Their app source is not included in
+this repository. Live's downloadable apps are hosted here as release assets.
 
-From the source checkout:
+## Connect a coding agent
+
+Install and sign in to at least one agent before your first Build. Each agent
+uses its own account, available models, and usage limits.
+
+| Agent | Install | Sign in |
+| --- | --- | --- |
+| **OpenCode** | [OpenCode CLI](https://opencode.ai/docs/) | `opencode auth login` |
+| **Codex** | [Codex CLI](https://developers.openai.com/codex/cli) | `codex login`, or **Sign in with ChatGPT** in Glowbom's Codex settings. |
+| **Claude Code** | [Claude Code CLI](https://code.claude.com/docs/en/setup) | `claude auth login` |
+| **Cursor** | [Cursor CLI](https://cursor.com/docs/cli/installation) | `cursor-agent login`; installations with only `agent` need the [path setup](docs/content/docs/connect-ai.mdx#connect-cursor). |
+
+Glowbom manages Codex through **Codex App Server**. You do not need to start
+that server yourself. For OpenCode, choose a provider during login.
+
+### More agents through ACP
+
+Agent Client Protocol (ACP) lets Glowbom connect to other installed coding
+agents. In OSS, open **Settings → Coding agent → ACP connection**. Add the
+executable and its arguments, test the connection, choose a model, and save.
+You can save up to three connections.
+
+| Agent | Executable | Arguments | Account setup |
+| --- | --- | --- | --- |
+| [Cline](https://docs.cline.bot/usage/acp) | `cline` | `--acp` | `cline auth` |
+| [Goose](https://goose-docs.ai/docs/gdk/acp/) | `goose` | `acp` | `goose configure`; enable the Developer extension. |
+| [Grok Build](docs/content/docs/connect-ai.mdx#grok-build) | `grok` | `agent`, then `stdio` on separate lines | `grok login` |
+| [Hermes](docs/content/docs/connect-ai.mdx#hermes) | `hermes` | `acp` | `hermes model`, then `hermes acp --check` |
+
+The [connection guide](docs/content/docs/connect-ai.mdx#add-an-acp-agent) also
+covers Kilo and OpenClaw. Test each manual connection with a small Build;
+capabilities depend on the installed agent. Grok Build and Hermes are documented
+for testing; successful builds with your accounts still need to be checked.
+
+## Run Glowbom OSS
+
+Install [Go](https://go.dev/doc/install), [Bun](https://bun.sh/), and an agent
+from the list above. Use macOS or Linux, or WSL on Windows.
+
+Get this repository and start from source:
 
 ```sh
-cd cli
+git clone https://github.com/glowbom/glowbom-oss.git
+cd glowbom-oss/cli
 go run . doctor
 go run . start
 ```
 
-The launcher starts the local backend and public browser interface. Choose a
-project, select a configured agent/model, enter instructions, and select
-**Build**. Review permission requests and generated assets before approving them.
-Use **Preview** for supported project stacks and **Settings** for agent and
-Buzz connections. Follow the [Buzz guide](BUZZ.md) for a channel and Glowbom Live.
+Already have the checkout? Run the last two commands from its `cli/` folder.
+The launcher opens the browser. Choose a project, select your agent and model
+in **Settings**, enter instructions, and click **Build**. The OSS interface runs
+one agent at a time. Press Ctrl+C in the terminal to stop.
 
-A packaged CLI can also be installed with:
+Prefer the installed `glowbom` command? Follow the [CLI installation guide](cli/README.md).
+It still needs this checkout, Go, and Bun. Published CLI releases can differ
+from the source on `main`.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/glowbom/glowbom-oss/main/scripts/install.sh | sudo sh
-```
+## Projects
 
-Run `glowbom doctor` and `glowbom start` from a source checkout containing sibling
-`backend/` and `web/` directories. The installer selects the latest published CLI
-release; it may differ from changes in this checkout. On Windows, use WSL for
-this local workflow. See the [CLI guide](cli/README.md) for native account and
-export commands.
-
-## Agents, projects, and previews
-
-OpenCode uses your configured providers and models. Cursor requires its own CLI
-and login. Backend adapters for additional agents retain their own credentials,
-permissions, and model access; installing an agent does not connect its account.
-See [Connect AI](docs/content/docs/connect-ai.mdx) for roles and limits. Screen
-instructions there identify the full Desktop client where applicable.
-
-Agent builds can edit files and run commands in the selected project. Cursor's
-headless build mode uses its local permission and trust rules. Review the
-selected agent's behavior before granting access to a project.
-
-Use an existing project or copy the bundled `project/` template. Supported Apple,
-Android, and web targets are described in [Supported stacks](SUPPORTED_STACKS.md).
-[Custom stacks](STACKS.md) explains previews and connecting another folder.
-Starting a preview can run project code and install dependencies. Native builds
-still require the relevant development tools.
-
-## Open backend and project records
-
-The backend includes agent execution, provider connections, local project and
-media operations, Project Book records, and companion APIs. The public browser
-shell does not expose every endpoint as a screen. These guides describe the
-protocols and, where stated, the separate Desktop UI:
-
-- [Project Book](PROJECT_BOOK.md): portable history, evidence, and generation.
-- [Buzz and Glowbom Live](BUZZ.md): channel connection and local messages.
-- [Account API](backend/ACCOUNT.md): optional Glowbom account access.
-- [CLI](CLI.md): source and packaged command-line use.
-- [Documentation portal](docs/README.md): public API and product guides.
+Use an existing project or copy the bundled `project/` starter. See
+[supported stacks](SUPPORTED_STACKS.md) and [previews](STACKS.md). Native builds
+need the relevant platform tools, such as Xcode or Android Studio.
 
 ## Glowbom Live
 
-[Glowbom Live](https://glowbom.com/desktop/#live) is a separate 3D office for a
-Buzz channel. The current 4.1.1 packages are hosted as versioned assets on the
-existing [OSS v4.1.0 release](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0).
-This hosting choice does not make the OSS source version 4.1.1.
+Glowbom Live shows people and agents from your Buzz channel in a 3D office.
+It is a separate, closed-source app for Mac, Windows, and Linux. Download the
+matching `Glowbom-Live-4.1.1-*` package from the
+[GitHub release assets](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0).
+The release tag is `v4.1.0`; the Live app downloads on it are version `4.1.1`.
 
-The signed Mac Desktop app can launch Live with its local connection. When using
-OSS in a browser, follow the manual connection steps in [BUZZ.md](BUZZ.md).
-Mac Live is signed and notarized. Windows is an unsigned x64 preview; Linux has
-x86_64 and ARM64 archives. Keep the backend running while Live is connected.
+Start OSS and click **Buzz** to connect your channel, then open the installed
+Live app. Keep the local backend running. See the
+[Live installation guide](docs/content/docs/glowbom-live.mdx) for downloads
+and connection steps, or the [Buzz guide](BUZZ.md) for the open backend API.
 
-## Security and model costs
+## Glowbom Desktop
 
-`glowbom start` binds services to loopback, creates a per-run backend bearer token,
-and authenticates the OpenCode bridge. Preserve those checks when adding clients.
-Use `glowbom start --show-local-auth` only when you need the local connection
-values, and never share their output. Manual backend launches need equivalent
-local authentication configuration; the CLI is the recommended entry point.
-The backend refuses a network-facing bind address when no bearer token is set.
-Optional file-based account credentials must stay outside project and source
-directories, including paths reached through symlinks. The system keyring remains
-the default.
+Glowbom Desktop is the separate, closed-source Mac app with Chat, Draw, Studio,
+Project Book, and iOS/Vision Pro companion connections. It uses the open backend
+and is available through early access.
 
-Local project storage does not mean every model runs offline. Cloud requests use
-your selected provider and account, and media generation can incur charges.
-Keep credentials outside project files, source, logs, and release archives.
+**[Sign up for early access at glowbom.com/desktop](https://glowbom.com/desktop).**
+See the [Desktop guide](docs/content/docs/desktop.mdx) for setup and companion pairing.
 
-Before publishing source, run `python3 -B scripts/audit-publication.py`. It checks
-for known credential patterns, private source directories, and local files.
-Read the [publication check guide](scripts/PUBLICATION_AUDIT.md) for its scope and
-limits. Review the changes being published as well as the automated result.
+## Permissions and privacy
 
-## Development checks
+Agents edit files and run commands. Review permission requests; Cursor
+uses its CLI's automatic tool behavior and deny rules. Project previews can
+also run code and install dependencies.
+
+The launcher keeps services on loopback and protects the backend with a local
+access token. Cloud models send requests to the selected provider, whose charges
+and limits apply. Keep credentials out of project files and logs. See
+[security defaults](docs/content/docs/glowbom-oss.mdx#security-defaults).
+
+## Documentation and development
+
+- [Agents](docs/content/docs/connect-ai.mdx): installation, login, and ACP setup.
+- [CLI](cli/README.md): launch, account, template, and export commands.
+- [Project Book](PROJECT_BOOK.md): portable history and project records.
+- [Companion guide](docs/content/docs/companion.mdx): connect to Desktop from iOS or Vision Pro.
+- [Documentation portal](docs/README.md): build the public guides.
+- [Publication checks](scripts/PUBLICATION_AUDIT.md): review source before sharing it.
 
 ```sh
 (cd backend && go test ./...)
@@ -118,18 +129,5 @@ limits. Review the changes being published as well as the automated result.
 (cd web && bun install && bun run typecheck && bun run build)
 ```
 
-The public build must work without files from the private Desktop client or any
-other repository. Run checks for the area you change.
-
-## Repository layout
-
-- `backend/`: open Go backend and APIs
-- `cli/`: local launcher and account commands
-- `web/`: minimal Agent + Buzz React interface
-- `project/`: portable project template
-- `extras/`: optional agent and local-model integrations
-- `docs/`: public API and product documentation
-- `scripts/`: installation scripts
-
-Historical public checkouts may also contain `legacy/`. The current source
-export does not refresh that older application code.
+The public source builds independently of Desktop. Glowbom OSS was previously
+Glowby OSS; existing projects and compatibility commands remain supported.

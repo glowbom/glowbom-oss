@@ -2799,7 +2799,7 @@ export default function App({ runs, ...appearance }: AppearanceProps & { runs: R
                 disabled={isStartingBuild || anyRunning}
                 onChange={(event) => setAgentDriver(event.target.value as BuildAgent)}>
                 <option value="opencode">OpenCode</option>
-                <option value="cursor">Cursor (preview)</option>
+                <option value="cursor">Cursor</option>
                 <option value="claude-code">Claude Code</option>
                 <option value="codex">Codex</option>
                 <option value="acp">ACP connection</option>

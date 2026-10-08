@@ -1,9 +1,16 @@
-# Glowbom Live connection preview
+# Buzz connections and Glowbom Live
 
-In the public Agent + Buzz browser, open **Settings** and the Buzz controls.
+Glowbom OSS provides the open backend and Buzz connection controls. Glowbom Live
+is a separate, closed-source app, downloaded from the
+[GitHub release assets](https://github.com/glowbom/glowbom-oss/releases/tag/v4.1.0).
+For installation and a short walkthrough, use the
+[Live guide](docs/content/docs/glowbom-live.mdx). This page covers connection
+details and the open backend API.
+
+In the OSS browser, click **Buzz** in the top bar to open the Live connection panel.
 The full Desktop client uses **Account → Settings → Glowbom Live**. No Glowbom
-sign-in is required. UI paths below that name Account or native launch controls
-refer to Desktop; the local backend protocol remains open.
+sign-in is required. UI paths below that name Account refer to Desktop;
+the local backend protocol remains open.
 Enter an HTTPS relay URL in **Server URL**, a channel UUID,
 and your Buzz identity private key (hex or nsec). For a personal identity,
 leave the owner-auth tag under **Advanced** blank. Agent identities may need a
@@ -20,7 +27,8 @@ status every five seconds while Glowbom Live settings is open and the page is vi
 If the backend cannot be reached or its response is invalid, it shows
 **Status unavailable** with a refresh icon to check again.
 
-Once connected, expand **Connect the Live app** to use **Copy access token**.
+On Mac, use **Open Glowbom Live** to pass the connection to the installed app
+automatically. For manual setup, expand **Connect the Live app** and use **Copy access token**.
 Copy puts the token already used by OSS onto your clipboard
 without displaying it. Paste it into Glowbom Live on the same computer.
 This is the local OSS access token, not your Buzz private key. It grants access
@@ -99,7 +107,7 @@ Buzz WebSocket subscription described below. No message posting or project
 updates are implemented. Empty rosters cannot distinguish missing access from an
 empty or incorrect channel.
 
-## Using the game
+## Using the installed Live app
 
 The settings footer offers **Get Glowbom Live** when no supported installation
 is found. It selects the published Mac, Windows x64, or matching Linux download;
@@ -110,7 +118,7 @@ Glowbom checks the installation again. Desktop downloads open in the system
 browser. A failed check shows a retry action instead of claiming the app is absent.
 The Mac Desktop shell detects and launches the app directly, so it does not need
 a backend restart for these actions. The local web interface uses the endpoints below.
-The 4.1.1 Desktop candidate also reads the installed Mac app's version. If it is
+Desktop 4.1.1 also reads the installed Mac app's version. If it is
 older than the intended Live release, the same footer offers **Update Glowbom
 Live**. This opens the download; quit Live and replace the installed app yourself.
 An unreadable version is not treated as proof that the app is outdated.
@@ -121,19 +129,19 @@ An already running game must be closed before a fresh environment can be handed
 to it. Windows and Linux currently use the download and manual-open flow.
 
 The launch handoff supplies `GLOWBOM_SERVER_TOKEN`, `GLOWBOM_BACKEND_URL`, and
-`GLOWBOM_LIVE_AUTOSTART=1`. The 4.1.1 Live candidate accepts the current token and
+`GLOWBOM_LIVE_AUTOSTART=1`. Live 4.1.1 accepts the current token and
 loopback backend address, checks the connection, and enters the office
-automatically. A failed connection keeps setup available for retry. Verify this
-with the packaged Desktop and Live pair before publishing their update.
+automatically. A failed connection keeps setup available for retry.
 Authenticated `GET /live/app` reports installation status, and `POST /live/app`
 opens the app. These endpoints accept no executable path or backend URL from the
 request.
 
 For manual setup:
 
-Connect in OSS first, then open **Account → Settings → Glowbom Live →
-Connect the Live app** and click **Copy access token**. Run Glowbom Live from the Godot editor and
-choose the Glowbom Live experience. Paste into its **Local backend access
+Connect your channel first. In OSS, click **Buzz**; in Desktop, open
+**Account → Settings → Glowbom Live**. Expand **Connect the Live app** and
+click **Copy access token**. Open the installed Glowbom Live app and choose
+the Glowbom Live experience. Paste into its **Local backend access
 token** field and press **New Game**.
 The game reads `http://127.0.0.1:4569/buzz/session` and chooses the smallest
 4-, 6-, or 8-person office that fits. Empty and larger rosters are rejected.
@@ -171,8 +179,9 @@ own voice override. **Speak new messages** starts enabled when the selected sour
 is available; **Read all new messages** can opt into full-message speech. The
 initial default source is ElevenLabs.
 
-For ElevenLabs, expand **Live messages and speech** in **Account → Settings →
-Glowbom Live** and enter an optional **ElevenLabs API key for Live**. Choose
+For ElevenLabs, open **Buzz** in OSS or **Account → Settings → Glowbom Live**
+in Desktop. Expand **Live messages and speech** and enter an optional
+**ElevenLabs API key for Live**. Choose
 **Use key for Live**, use the existing ElevenLabs key when offered, or set
 `ELEVENLABS_API_KEY` in the backend environment before starting OSS. UI-supplied
 keys are saved privately on the backend computer and restored on new connections.

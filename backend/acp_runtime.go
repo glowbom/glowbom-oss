@@ -459,7 +459,11 @@ func (p *acpProcess) initialize(ctx context.Context) (acpProbeResult, error) {
 	setupContext, cancel := context.WithTimeout(ctx, acpSetupTimeout)
 	defer cancel()
 	var response struct {
-		ProtocolVersion   int `json:"protocolVersion"`
+		ProtocolVersion int `json:"protocolVersion"`
+		AuthMethods     []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+		} `json:"authMethods"`
 		AgentCapabilities struct {
 			LoadSession        bool `json:"loadSession"`
 			PromptCapabilities struct {
@@ -489,7 +493,23 @@ func (p *acpProcess) initialize(ctx context.Context) (acpProbeResult, error) {
 	if name == "" {
 		name = response.AgentInfo.Name
 	}
-	return acpProbeResult{Name: name, Version: response.AgentInfo.Version, Images: response.AgentCapabilities.PromptCapabilities.Image, LoadSession: response.AgentCapabilities.LoadSession}, nil
+	result := acpProbeResult{Name: name, Version: response.AgentInfo.Version, Images: response.AgentCapabilities.PromptCapabilities.Image, LoadSession: response.AgentCapabilities.LoadSession}
+	for _, method := range response.AuthMethods {
+		// Grok Build advertises this noninteractive cached-login method. Never
+		// select another method or launch terminal/browser authentication here.
+		if method.ID != "cached_token" || (method.Type != "" && method.Type != "agent") {
+			continue
+		}
+		var authenticated struct{}
+		err := p.call(setupContext, "authenticate", map[string]any{
+			"methodId": "cached_token", "_meta": map[string]bool{"headless": true},
+		}, &authenticated)
+		if err != nil {
+			return result, acpSetupError(ctx, err)
+		}
+		break
+	}
+	return result, nil
 }
 
 func acpSetupError(parent context.Context, err error) error {

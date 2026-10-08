@@ -7,8 +7,11 @@ For the local Glowbom product setup, see the [repository README](../README.md).
 ## Edit the content
 
 Public pages live in `content/docs/`. Their titles and descriptions come from
-MDX frontmatter. `content/docs/meta.json` controls sidebar order. When adding a
-page, also add its route to the prerender list in `react-router.config.ts`.
+MDX frontmatter. `content/docs/meta.json` lists sidebar pages.
+`app/lib/source.server.ts` groups the existing pages under Glowbom Desktop,
+with OSS and CLI at the same level, while preserving their public URLs. Local AI remains
+a detail page linked from Agents rather than a second sidebar entry.
+When adding a page, also add its route to the prerender list in `react-router.config.ts`.
 Search records are generated from the same content.
 
 Use Glowbom for public names. Describe available behavior from the implementation
@@ -17,8 +20,13 @@ Windows and Linux Desktop packages are not released. The documented OSS setup us
 or WSL on Windows. Do not describe the whole workflow as offline when it uses a
 cloud model. Keep this directory independent of files outside the OSS repository.
 The public browser interface is Agent + Buzz. Label Chat, Draw, Studio, Book,
-onboarding, and native shell instructions as the separate Desktop client. Open
-backend/API documentation stays here even when no public screen exposes it.
+onboarding, and native shell instructions as the separate Desktop client. Direct
+new Desktop users to the early-access signup at `https://glowbom.com/desktop`.
+Glowbom Live is a separate closed-source app distributed through GitHub release
+assets; its installation guide is `content/docs/glowbom-live.mdx`. Desktop is
+also closed source. Hosting their documentation or Live downloads here does not
+make their app source part of OSS. Open backend/API documentation stays here
+even when no public screen exposes it.
 
 ## Develop
 
@@ -60,7 +68,7 @@ folders in the combined release. Do not copy `build/server/` or replace the
 hosting project's configuration with a new one.
 
 Before publishing, verify the docs homepage and direct loads of `/docs/quickstart`,
-`/docs/glowbom-oss`, `/docs/project-book`, and `/docs/desktop`. Check sidebar links,
+`/docs/glowbom-oss`, `/docs/project-book`, `/docs/glowbom-live`, and `/docs/desktop`. Check sidebar links,
 search, styles, and mobile navigation. Confirm that the existing `/docs/glowby-oss`
 compatibility route still resolves through the deployment's routing.
 

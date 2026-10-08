@@ -1,59 +1,51 @@
 ---
 title: Glowbom Desktop
-description: Continue local projects, connect coding agents, and pair a companion preview.
+description: Join Mac early access for the full Glowbom workspace.
 ---
 
-Glowbom Desktop uses the open Glowbom backend with a separate full React
-interface and Tauri shell. Its UI source is not part of Glowbom OSS, whose
-public browser interface focuses on Agent and Buzz.
-Continue a project with connected AI agents, preview the result, and keep its
-saved history in the [Project Book](./project-book).
+Glowbom Desktop brings Chat, Draw, Studio, coding agents, and the
+[Project Book](./project-book) together in a Mac app. Continue a local project,
+preview the result, and keep its saved history alongside the code.
 
-## Current availability
+Desktop is a separate closed-source app that uses the open Glowbom backend.
+Use this guide to find AI setup, project records, and the related apps.
 
-[Glowbom Live](https://glowbom.com/desktop/#live) is available now as a preview.
-It shows people and agents from a Buzz channel as characters in a virtual
-office. You still need Glowbom OSS 4.1.0 or later running locally, with a Buzz
-channel connected.
+## Join early access
 
-Desktop 4.1.1 is available as a signed, notarized Mac early-access download at
-[glowbom.com/desktop/early-access](https://glowbom.com/desktop/early-access/).
-Windows and Linux Desktop packages are not released. The source guides below
-describe the full Desktop client; they are not controls in the minimal OSS
-browser interface. Hardware and companion acceptance checks remain separate
-from publishing a download.
+**[Sign up for Glowbom Desktop early access](https://glowbom.com/desktop).**
 
-## Connect a coding agent
+Desktop is available for Mac through early access. Windows and Linux Desktop
+apps have not been released.
 
-Open **Settings → Connect AI** to connect model providers or check the built-in
-agent integrations. Cursor needs its CLI installed and signed in. Installing
-the Cursor editor or CLI alone does not connect its models.
+## Desktop guides
 
-Use **Account → Tools → ACP connections** to configure another installed agent, such as
-Cline, with its executable and ACP arguments. Test it, choose a reported model,
-save, and select the connection for Build. Follow [Connect AI](./connect-ai)
-for setup, supported roles, and troubleshooting.
+| Guide | What you can do |
+| --- | --- |
+| [Agents](./connect-ai) | Install and sign in to coding agents, connect model providers, or find the local AI setup guide. |
+| [Project Book](./project-book) | Read the project's saved work, decisions, and history alongside its code. |
+| [Companion apps](./companion) | Pair an iPhone, iPad, or Vision Pro with Desktop to use shared projects. |
+| [Glowbom Live](./glowbom-live) | See people and agents from your Buzz channel in an optional 3D office. |
+| [Glowbom OSS](./glowbom-oss) | Use the open-source backend, CLI, and coding workspace independently of the Mac app. |
+| [Glowbom CLI](./cli) | Prepare starter projects, sign in to your account, and export saved work from the command line. |
 
-## Pair iOS or Vision Pro
+The companion apps and Glowbom Live are separate installs. Companion apps connect
+to a running Desktop on the same local network and require matching builds.
+Glowbom Live is a separate closed-source app; its guide covers the GitHub downloads
+and connecting it to Desktop or OSS.
 
-The companion preview connects an iPhone, iPad, or Vision Pro to a running
-Desktop on the same local network. In **Settings → Phone connection**, enable
-access and pair your own device. Both sides need matching builds.
+## The independent open-source path
 
-Use shared projects for chat, reviewed builds, previews, and reading the Book.
-Studio uses the computer's connected media providers. Credentials stay on the
-computer; messages and attached media pass through it to the selected provider.
-See the [companion guide](./companion) for pairing and current limits.
+[Glowbom OSS](./glowbom-oss) works without a Desktop installation, Glowbom account,
+or early-access signup. It provides the shared open backend and its own browser
+workspace for coding and Buzz connections. Desktop's full interface and native
+app remain closed-source.
 
-## Build locally today
-
-[Glowbom OSS](./glowbom-oss) is available now. It runs a local backend and browser
-interface on macOS and Linux; on Windows, use WSL for the documented setup.
-You can work with your own project or the bundled starter template.
+Run OSS on macOS or Linux, or use WSL on Windows. You can work with your own
+project or the bundled starter template. Follow the OSS guide for installation
+and agent setup.
 
 ## Internet and model access
 
 Local project files do not mean every model runs offline. Cloud providers need
 an internet connection and their own account or credentials. Local models depend
-on your provider setup and hardware. We do not promise fully offline operation
-for the Desktop release.
+on your provider setup and hardware.

@@ -4,7 +4,7 @@ const basename = process.env.DOCS_BASE_PATH ?? (process.env.NODE_ENV === "produc
 
 export default {
   ssr: true,
-  prerender: ["/", "/glowbom", "/quickstart", "/glowbom-oss", "/connect-ai", "/local-ai", "/cli", "/project-book", "/desktop", "/companion"],
+  prerender: ["/", "/glowbom", "/quickstart", "/glowbom-oss", "/connect-ai", "/local-ai", "/cli", "/project-book", "/glowbom-live", "/desktop", "/companion"],
   basename,
   routeDiscovery: {
     mode: "initial",

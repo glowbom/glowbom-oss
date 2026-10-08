@@ -1,10 +1,11 @@
 ---
 title: Glowbom OSS
-description: Run the open backend, CLI, and Agent + Buzz browser workspace.
+description: Run the open backend, CLI, and local coding interface with Buzz connection controls.
 ---
 
-Glowbom OSS is the open local backend, CLI, and minimal Agent + Buzz React
-interface. Load a project, work with coding agents, and review results.
+Glowbom OSS is the open-source local backend, CLI, and browser interface for
+coding agents and Buzz connections. Load a project, work with coding agents,
+and review results.
 It works with Glowbom projects and can also work with other project structures.
 The full Chat, Draw, Studio, Book, onboarding, and Tauri interfaces belong to
 the separate [Desktop client](./desktop). Backend APIs and portable records
@@ -12,6 +13,12 @@ remain open; the public browser does not expose every API as a screen.
 
 The software is free to use. Model providers may charge for their services.
 A Glowbom account is not required for the local workflow.
+
+[Glowbom Live](./glowbom-live) is a separate, closed-source app downloaded
+from GitHub release assets. The **Buzz** button in OSS connects your channel;
+the installed Live app displays its 3D office. Live is optional for coding.
+
+For the full Mac app, [sign up for Glowbom Desktop early access](https://glowbom.com/desktop).
 
 ## Requirements
 
@@ -22,7 +29,7 @@ Install these tools and make sure they are available in your terminal:
 - [Bun](https://bun.sh/) to run the web interface.
 - A supported coding agent. [OpenCode](https://opencode.ai/docs/) is the starting
   choice for provider access and Build. Backend adapters also support other
-  agents; see [Connect AI](./connect-ai) for their roles and Desktop controls.
+  agents; see [Agents](./connect-ai) for their roles and Desktop controls.
 
 On macOS and Linux, use your regular terminal. On Windows, use WSL with the tools
 installed inside your Linux environment for this setup.
@@ -67,21 +74,16 @@ go run . start
 
 Keep using `go run . COMMAND` from `cli/` for source commands.
 
-## Connect AI
+## Agents
 
-For the OpenCode path, configure your provider:
+Open **Settings → Coding agent** and choose OpenCode, Codex, Claude Code,
+Cursor, or an ACP connection. Install and authenticate the selected
+agent first. The [Agents guide](./connect-ai#install-and-sign-in) lists
+installation links and login commands, including Codex App Server and manual
+ACP setup for Cline, Goose, and other agents.
 
-```bash
-opencode auth login
-```
-
-Choose an available provider and follow its sign-in instructions. Authentication
-methods and model availability depend on the provider and your installed
-OpenCode version. See [OpenCode provider setup](https://opencode.ai/docs/providers/).
-
-For Cursor, install its CLI and sign in with `cursor-agent login`. Installing
-the CLI alone does not add models to Glowbom. The [Connect AI guide](./connect-ai)
-also covers Codex, Claude Code, and manual ACP connections such as Cline.
+The OSS interface runs one agent at a time. This is an interface choice; the
+shared backend can serve concurrent runs from other clients.
 
 Glowbom OSS uses that configuration; it does not require you to enter provider
 credentials into a separate Glowbom account. Hosted models send requests over
@@ -149,6 +151,12 @@ credentials; local service credentials and provider credentials are different.
 `glowbom start --show-local-auth` prints local access credentials for debugging.
 Treat that output as sensitive and leave it out of screenshots and issue reports.
 
+Manual backend launches need equivalent authentication configuration. The backend
+refuses a network-facing bind address without a bearer token. Keep provider
+credentials outside projects, source, logs, and release archives. The optional
+file-based account store rejects detected project and source locations,
+including symlink targets; the system keyring remains the default.
+
 ## Troubleshooting
 
 **Command not found:** restart your terminal and check the tool's install directory
@@ -161,7 +169,7 @@ which dependency is missing.
 **No models or sign-in failure:** check the selected agent's login and account
 access, then refresh the model menu. For Cursor, run `cursor-agent status` and
 `cursor-agent models`; wait up to 45 seconds after signing in before refreshing.
-See [Connect AI](./connect-ai) for setup checks.
+See [Agents](./connect-ai) for setup checks.
 
 **Project folder picker unavailable:** enter the absolute path manually when the
 interface offers a path field. On Windows, use a path visible inside WSL.
